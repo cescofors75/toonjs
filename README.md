@@ -8,6 +8,8 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Performance](https://img.shields.io/badge/performance-+99%25-orange.svg)](https://github.com/cescofors75/toonjs/blob/main/PERFORMANCE.md)
 
+> 📚 **[Complete Documentation, Interactive Playground & Tools → toonjs.dev](https://toonjs.dev)**
+
 [English](#english) | [Español](#español)
 
 ---
@@ -30,6 +32,8 @@ ToonJS is a powerful, zero-dependency TypeScript library for working with tabula
 - **🌐 Universal**: Works in Node.js and browsers
 
 ### 🚀 Quick Start
+
+> 💡 **Try it live at [toonjs.dev/playground](https://toonjs.dev/playground)** - Interactive code editor with examples!
 
 #### Installation
 
@@ -257,10 +261,15 @@ Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md)
 
 ### 🔗 Links
 
-- [NPM Package](https://www.npmjs.com/package/@cescofors/toonjs)
-- [GitHub Repository](https://github.com/cescofors75/toonjs)
-- [Performance Benchmarks](https://github.com/cescofors75/toonjs/blob/main/PERFORMANCE.md)
-- [Changelog](https://github.com/cescofors75/toonjs/blob/main/CHANGELOG.md)
+- 🌐 **[toonjs.dev](https://toonjs.dev)** - Official website with full documentation
+- 📚 **[Documentation](https://toonjs.dev/docs)** - Complete API reference & guides  
+- 🎮 **[Playground](https://toonjs.dev/playground)** - Try ToonJS in your browser
+- 🔧 **[Tools](https://toonjs.dev/converter)** - JSON/CSV to TOON converter
+- 📝 **[Blog](https://toonjs.dev/blog)** - Updates, tutorials & insights
+- 📦 **[NPM Package](https://www.npmjs.com/package/@cescofors/toonjs)** - Install via npm
+- 🐙 **[GitHub Repository](https://github.com/cescofors75/toonjs)** - Source code & issues
+- ⚡ **[Performance Benchmarks](https://github.com/cescofors75/toonjs/blob/main/PERFORMANCE.md)** - Speed comparisons
+- 📋 **[Changelog](https://github.com/cescofors75/toonjs/blob/main/CHANGELOG.md)** - Version history
 
 ---
 
@@ -371,6 +380,18 @@ Los 77 tests pasan con 100% de cobertura.
 ### 📄 Licencia
 
 MIT © 2025
+
+---
+
+## 🌐 Resources / Recursos
+
+- 🌐 **[toonjs.dev](https://toonjs.dev)** - Official website with full documentation
+- 📚 **[Documentation](https://toonjs.dev/docs)** - Complete API reference & guides
+- 🎮 **[Playground](https://toonjs.dev/playground)** - Try ToonJS in your browser
+- 🔧 **[Tools](https://toonjs.dev/converter)** - JSON/CSV to TOON converter
+- 📝 **[Blog](https://toonjs.dev/blog)** - Updates, tutorials & insights
+- 📦 **[NPM Package](https://www.npmjs.com/package/@cescofors/toonjs)** - Install via npm
+- 🐙 **[GitHub](https://github.com/cescofors75/toonjs)** - Source code & issues
 
 ---
 
