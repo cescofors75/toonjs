@@ -16,7 +16,7 @@
 
 ### 📖 Overview
 
-ToonJS is a powerful, zero-dependency TypeScript library for working with tabular data. It introduces the TOON format - a human-readable, efficient way to represent datasets - and provides 60+ optimized methods for data manipulation, analysis, and transformation.
+ToonJS is a powerful, zero-dependency TypeScript library for working with tabular data. It introduces the TOON format - a human-readable, efficient way to represent datasets - and provides 64+ optimized methods for data manipulation, analysis, and transformation.
 
 ### ✨ Key Features
 
@@ -24,7 +24,7 @@ ToonJS is a powerful, zero-dependency TypeScript library for working with tabula
 - **📦 Zero Dependencies**: Pure TypeScript, no external packages
 - **🎯 Type-Safe**: Full TypeScript support with comprehensive type definitions
 - **🔗 Chainable API**: Fluent interface for elegant data pipelines
-- **📊 Rich Functionality**: 60+ methods covering filtering, aggregation, statistics, and more
+- **📊 Rich Functionality**: 64+ methods covering filtering, aggregation, statistics, and more
 - **🎨 Custom Format**: TOON format - compact and human-readable
 - **✅ Well-Tested**: 77 comprehensive tests with 100% coverage
 - **🌐 Universal**: Works in Node.js and browsers
