@@ -1396,4 +1396,855 @@ export class Toon {
       rows: newRows,
     });
   }
+
+  // ========== NIVEL 1: MÉTODOS ESENCIALES (PANDAS-LIKE) ==========
+
+  /**
+   * Rellena valores nulos/undefined con un valor específico
+   * Similar a pandas.fillna()
+   */
+  fillna(value: unknown, fields?: string[]): Toon {
+    const fieldsToFill = fields || Object.keys(this.dataset.schema);
+    const fieldSet = new Set(fieldsToFill);
+
+    const newRows = this.dataset.rows.map(row => {
+      const newRow: Record<string, unknown> = {};
+      const keys = Object.keys(row);
+
+      for (const key of keys) {
+        if (fieldSet.has(key) && (row[key] === null || row[key] === undefined || row[key] === '')) {
+          newRow[key] = value;
+        } else {
+          newRow[key] = row[key];
+        }
+      }
+
+      return newRow;
+    });
+
+    return new Toon({
+      ...this.dataset,
+      rows: newRows,
+    });
+  }
+
+  /**
+   * Elimina filas que contienen valores nulos/undefined
+   * Similar a pandas.dropna()
+   */
+  dropna(fields?: string[], how: 'any' | 'all' = 'any'): Toon {
+    const fieldsToCheck = fields || Object.keys(this.dataset.schema);
+
+    const filtered = this.dataset.rows.filter(row => {
+      const nullCount = fieldsToCheck.reduce((count, field) => {
+        const value = row[field];
+        return count + (value === null || value === undefined || value === '' ? 1 : 0);
+      }, 0);
+
+      if (how === 'any') {
+        return nullCount === 0;
+      } else {
+        return nullCount < fieldsToCheck.length;
+      }
+    });
+
+    return new Toon({
+      ...this.dataset,
+      rows: filtered,
+    });
+  }
+
+  /**
+   * Genera un resumen estadístico completo del dataset
+   * Similar a pandas.describe()
+   */
+  describe(fields?: string[]): Record<string, Record<string, number>> {
+    const fieldsToDescribe = fields || Object.keys(this.dataset.schema);
+    const result: Record<string, Record<string, number>> = {};
+
+    for (const field of fieldsToDescribe) {
+      const values = this.pluck(field)
+        .map(v => Number(v))
+        .filter(v => !isNaN(v));
+
+      if (values.length === 0) {
+        result[field] = {
+          count: 0,
+          mean: 0,
+          std: 0,
+          min: 0,
+          '25%': 0,
+          '50%': 0,
+          '75%': 0,
+          max: 0,
+        };
+        continue;
+      }
+
+      const sorted = [...values].sort((a, b) => a - b);
+      const count = values.length;
+      const sum = values.reduce((a, b) => a + b, 0);
+      const mean = sum / count;
+      const variance = values.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / count;
+      const std = Math.sqrt(variance);
+
+      const getPercentile = (p: number) => {
+        const index = Math.ceil((p / 100) * count) - 1;
+        return sorted[Math.max(0, index)];
+      };
+
+      result[field] = {
+        count,
+        mean,
+        std,
+        min: sorted[0],
+        '25%': getPercentile(25),
+        '50%': getPercentile(50),
+        '75%': getPercentile(75),
+        max: sorted[count - 1],
+      };
+    }
+
+    return result;
+  }
+
+  /**
+   * Combina dos datasets con diferentes tipos de join
+   * Similar a pandas.merge()
+   * Soporta: inner, left, right, outer, cross
+   */
+  merge(
+    other: Toon,
+    options: {
+      on?: string;
+      leftOn?: string;
+      rightOn?: string;
+      how?: 'inner' | 'left' | 'right' | 'outer' | 'cross';
+      suffixes?: [string, string];
+    } = {}
+  ): Toon {
+    const {
+      on,
+      leftOn = on,
+      rightOn = on,
+      how = 'inner',
+      suffixes = ['_x', '_y'],
+    } = options;
+
+    const otherRows = other.all();
+    const result: Record<string, unknown>[] = [];
+
+    // Schema combinado con manejo de conflictos
+    const leftSchema = this.dataset.schema;
+    const rightSchema = other.schema();
+    const newSchema: ToonSchema = {};
+
+    // Agregar campos del left
+    for (const [field, type] of Object.entries(leftSchema)) {
+      if (field in rightSchema && field !== leftOn) {
+        newSchema[`${field}${suffixes[0]}`] = type;
+      } else {
+        newSchema[field] = type;
+      }
+    }
+
+    // Agregar campos del right
+    for (const [field, type] of Object.entries(rightSchema)) {
+      if (field in leftSchema && field !== rightOn) {
+        newSchema[`${field}${suffixes[1]}`] = type;
+      } else if (!(field in leftSchema)) {
+        newSchema[field] = type;
+      }
+    }
+
+    if (how === 'cross') {
+      // Cross join: producto cartesiano
+      for (const leftRow of this.dataset.rows) {
+        for (const rightRow of otherRows) {
+          const merged: Record<string, unknown> = {};
+
+          // Agregar campos del left
+          for (const [key, value] of Object.entries(leftRow)) {
+            if (key in rightRow && key !== leftOn) {
+              merged[`${key}${suffixes[0]}`] = value;
+            } else {
+              merged[key] = value;
+            }
+          }
+
+          // Agregar campos del right
+          for (const [key, value] of Object.entries(rightRow)) {
+            if (key in leftRow && key !== rightOn) {
+              merged[`${key}${suffixes[1]}`] = value;
+            } else if (!(key in leftRow)) {
+              merged[key] = value;
+            }
+          }
+
+          result.push(merged);
+        }
+      }
+    } else {
+      // Join basado en claves
+      if (!leftOn || !rightOn) {
+        throw new Error('leftOn and rightOn are required for non-cross joins');
+      }
+
+      const rightIndex = new Map<unknown, Record<string, unknown>[]>();
+      for (const rightRow of otherRows) {
+        const key = rightRow[rightOn];
+        if (!rightIndex.has(key)) {
+          rightIndex.set(key, []);
+        }
+        rightIndex.get(key)!.push(rightRow);
+      }
+
+      const matchedRightKeys = new Set<unknown>();
+
+      // Procesar left rows
+      for (const leftRow of this.dataset.rows) {
+        const key = leftRow[leftOn];
+        const matches = rightIndex.get(key) || [];
+
+        if (matches.length > 0) {
+          matchedRightKeys.add(key);
+          for (const rightRow of matches) {
+            const merged: Record<string, unknown> = {};
+
+            // Agregar campos del left
+            for (const [k, v] of Object.entries(leftRow)) {
+              if (k in rightRow && k !== leftOn) {
+                merged[`${k}${suffixes[0]}`] = v;
+              } else {
+                merged[k] = v;
+              }
+            }
+
+            // Agregar campos del right
+            for (const [k, v] of Object.entries(rightRow)) {
+              if (k in leftRow && k !== rightOn) {
+                merged[`${k}${suffixes[1]}`] = v;
+              } else if (!(k in leftRow)) {
+                merged[k] = v;
+              }
+            }
+
+            result.push(merged);
+          }
+        } else if (how === 'left' || how === 'outer') {
+          // Left sin match
+          const merged: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(leftRow)) {
+            merged[k] = v;
+          }
+          result.push(merged);
+        }
+      }
+
+      // Agregar right rows sin match (para right y outer joins)
+      if (how === 'right' || how === 'outer') {
+        for (const rightRow of otherRows) {
+          const key = rightRow[rightOn];
+          if (!matchedRightKeys.has(key)) {
+            const merged: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(rightRow)) {
+              merged[k] = v;
+            }
+            result.push(merged);
+          }
+        }
+      }
+    }
+
+    return new Toon({
+      name: `${this.dataset.name}_merged`,
+      schema: newSchema,
+      rows: result,
+    });
+  }
+
+  /**
+   * Crea una tabla pivote
+   * Similar a pandas.pivot_table()
+   */
+  pivot(
+    index: string,
+    columns: string,
+    values: string,
+    aggFunc: 'sum' | 'avg' | 'min' | 'max' | 'count' = 'sum'
+  ): Toon {
+    // Obtener valores únicos para índice y columnas
+    const indexValues = this.distinct(index);
+    const columnValues = this.distinct(columns);
+
+    const result: Record<string, unknown>[] = [];
+
+    // Crear schema
+    const newSchema: ToonSchema = { [index]: this.dataset.schema[index] || 'string' };
+    columnValues.forEach(col => {
+      newSchema[String(col)] = 'number';
+    });
+
+    // Para cada valor del índice
+    for (const indexValue of indexValues) {
+      const row: Record<string, unknown> = { [index]: indexValue };
+
+      // Para cada valor de columna
+      for (const columnValue of columnValues) {
+        // Filtrar filas que coincidan
+        const filtered = this.dataset.rows.filter(
+          r => r[index] === indexValue && r[columns] === columnValue
+        );
+
+        if (filtered.length === 0) {
+          row[String(columnValue)] = null;
+          continue;
+        }
+
+        // Aplicar función de agregación
+        const vals = filtered.map(r => Number(r[values])).filter(v => !isNaN(v));
+
+        if (vals.length === 0) {
+          row[String(columnValue)] = null;
+        } else {
+          switch (aggFunc) {
+            case 'sum':
+              row[String(columnValue)] = vals.reduce((a, b) => a + b, 0);
+              break;
+            case 'avg':
+              row[String(columnValue)] = vals.reduce((a, b) => a + b, 0) / vals.length;
+              break;
+            case 'min':
+              row[String(columnValue)] = Math.min(...vals);
+              break;
+            case 'max':
+              row[String(columnValue)] = Math.max(...vals);
+              break;
+            case 'count':
+              row[String(columnValue)] = vals.length;
+              break;
+          }
+        }
+      }
+
+      result.push(row);
+    }
+
+    return new Toon({
+      name: `${this.dataset.name}_pivot`,
+      schema: newSchema,
+      rows: result,
+    });
+  }
+
+  // ========== NIVEL 2: MÉTODOS MUY ÚTILES ==========
+
+  /**
+   * Reemplaza valores específicos en el dataset
+   * Similar a pandas.replace()
+   */
+  replace(
+    toReplace: unknown | Record<string, unknown>,
+    value?: unknown,
+    fields?: string[]
+  ): Toon {
+    const fieldsToReplace = fields || Object.keys(this.dataset.schema);
+
+    const newRows = this.dataset.rows.map(row => {
+      const newRow = { ...row };
+
+      for (const field of fieldsToReplace) {
+        if (typeof toReplace === 'object' && toReplace !== null && !Array.isArray(toReplace)) {
+          // Mapeo de valores
+          const replaceMap = toReplace as Record<string, unknown>;
+          const currentValue = String(row[field]);
+          if (currentValue in replaceMap) {
+            newRow[field] = replaceMap[currentValue];
+          }
+        } else {
+          // Reemplazo simple
+          if (row[field] === toReplace) {
+            newRow[field] = value;
+          }
+        }
+      }
+
+      return newRow;
+    });
+
+    return new Toon({
+      ...this.dataset,
+      rows: newRows,
+    });
+  }
+
+  /**
+   * Obtiene una muestra aleatoria del dataset
+   * Similar a pandas.sample()
+   */
+  sample(n?: number, frac?: number, seed?: number): Toon {
+    let sampleSize: number;
+
+    if (frac !== undefined) {
+      sampleSize = Math.floor(this.count() * frac);
+    } else if (n !== undefined) {
+      sampleSize = Math.min(n, this.count());
+    } else {
+      sampleSize = 1;
+    }
+
+    // Simple random sampling sin seed (para mantenerlo simple)
+    const indices = new Set<number>();
+    const totalRows = this.count();
+
+    while (indices.size < sampleSize) {
+      const randomIndex = Math.floor(Math.random() * totalRows);
+      indices.add(randomIndex);
+    }
+
+    const sampledRows = Array.from(indices)
+      .sort((a, b) => a - b)
+      .map(idx => this.dataset.rows[idx]);
+
+    return new Toon({
+      ...this.dataset,
+      rows: sampledRows,
+    });
+  }
+
+  /**
+   * Marca filas duplicadas
+   * Similar a pandas.duplicated()
+   */
+  duplicated(fields?: string[], keep: 'first' | 'last' | false = 'first'): boolean[] {
+    const fieldsToCheck = fields || Object.keys(this.dataset.schema);
+    const seen = new Map<string, number>();
+    const result: boolean[] = [];
+
+    // Primera pasada
+    this.dataset.rows.forEach((row, idx) => {
+      const key = fieldsToCheck.map(f => String(row[f])).join('|');
+
+      if (!seen.has(key)) {
+        seen.set(key, idx);
+        result.push(false);
+      } else {
+        result.push(true);
+      }
+    });
+
+    // Ajustar según keep
+    if (keep === 'last') {
+      const seenLast = new Map<string, number>();
+      for (let i = this.dataset.rows.length - 1; i >= 0; i--) {
+        const row = this.dataset.rows[i];
+        const key = fieldsToCheck.map(f => String(row[f])).join('|');
+
+        if (!seenLast.has(key)) {
+          seenLast.set(key, i);
+          result[i] = false;
+        } else {
+          result[i] = true;
+        }
+      }
+    } else if (keep === false) {
+      // Marcar todas las ocurrencias como duplicadas
+      const counts = new Map<string, number>();
+      this.dataset.rows.forEach(row => {
+        const key = fieldsToCheck.map(f => String(row[f])).join('|');
+        counts.set(key, (counts.get(key) || 0) + 1);
+      });
+
+      this.dataset.rows.forEach((row, idx) => {
+        const key = fieldsToCheck.map(f => String(row[f])).join('|');
+        result[idx] = (counts.get(key) || 0) > 1;
+      });
+    }
+
+    return result;
+  }
+
+  /**
+   * Desplaza valores hacia arriba o abajo
+   * Similar a pandas.shift()
+   */
+  shift(periods: number = 1, fields?: string[], fillValue: unknown = null): Toon {
+    const fieldsToShift = fields || Object.keys(this.dataset.schema);
+    const fieldSet = new Set(fieldsToShift);
+
+    const newRows = this.dataset.rows.map((row, idx) => {
+      const newRow = { ...row };
+
+      for (const field of fieldsToShift) {
+        const sourceIdx = idx - periods;
+        if (sourceIdx >= 0 && sourceIdx < this.dataset.rows.length) {
+          newRow[field] = this.dataset.rows[sourceIdx][field];
+        } else {
+          newRow[field] = fillValue;
+        }
+      }
+
+      return newRow;
+    });
+
+    return new Toon({
+      ...this.dataset,
+      rows: newRows,
+    });
+  }
+
+  /**
+   * Operaciones de string - namespace para métodos de manipulación de texto
+   * Similar a pandas.str
+   */
+  get str() {
+    return {
+      /**
+       * Convierte a mayúsculas
+       */
+      upper: (fields?: string[]): Toon => {
+        const fieldsToUpper = fields || Object.keys(this.dataset.schema);
+        return new Toon({
+          ...this.dataset,
+          rows: this.dataset.rows.map(row => {
+            const newRow = { ...row };
+            fieldsToUpper.forEach(f => {
+              if (typeof row[f] === 'string') {
+                newRow[f] = (row[f] as string).toUpperCase();
+              }
+            });
+            return newRow;
+          }),
+        });
+      },
+
+      /**
+       * Convierte a minúsculas
+       */
+      lower: (fields?: string[]): Toon => {
+        const fieldsToLower = fields || Object.keys(this.dataset.schema);
+        return new Toon({
+          ...this.dataset,
+          rows: this.dataset.rows.map(row => {
+            const newRow = { ...row };
+            fieldsToLower.forEach(f => {
+              if (typeof row[f] === 'string') {
+                newRow[f] = (row[f] as string).toLowerCase();
+              }
+            });
+            return newRow;
+          }),
+        });
+      },
+
+      /**
+       * Elimina espacios en blanco al inicio y final
+       */
+      trim: (fields?: string[]): Toon => {
+        const fieldsToTrim = fields || Object.keys(this.dataset.schema);
+        return new Toon({
+          ...this.dataset,
+          rows: this.dataset.rows.map(row => {
+            const newRow = { ...row };
+            fieldsToTrim.forEach(f => {
+              if (typeof row[f] === 'string') {
+                newRow[f] = (row[f] as string).trim();
+              }
+            });
+            return newRow;
+          }),
+        });
+      },
+
+      /**
+       * Verifica si contiene un substring
+       */
+      contains: (field: string, substring: string, caseSensitive: boolean = true): boolean[] => {
+        const search = caseSensitive ? substring : substring.toLowerCase();
+        return this.dataset.rows.map(row => {
+          const value = String(row[field]);
+          const haystack = caseSensitive ? value : value.toLowerCase();
+          return haystack.includes(search);
+        });
+      },
+
+      /**
+       * Verifica si comienza con un substring
+       */
+      startsWith: (field: string, substring: string): boolean[] => {
+        return this.dataset.rows.map(row => {
+          const value = String(row[field]);
+          return value.startsWith(substring);
+        });
+      },
+
+      /**
+       * Verifica si termina con un substring
+       */
+      endsWith: (field: string, substring: string): boolean[] => {
+        return this.dataset.rows.map(row => {
+          const value = String(row[field]);
+          return value.endsWith(substring);
+        });
+      },
+
+      /**
+       * Reemplaza substring
+       */
+      replace: (field: string, search: string | RegExp, replacement: string): Toon => {
+        return new Toon({
+          ...this.dataset,
+          rows: this.dataset.rows.map(row => ({
+            ...row,
+            [field]: String(row[field]).replace(search, replacement),
+          })),
+        });
+      },
+
+      /**
+       * Obtiene la longitud del string
+       */
+      length: (field: string): number[] => {
+        return this.dataset.rows.map(row => String(row[field]).length);
+      },
+
+      /**
+       * Divide el string
+       */
+      split: (field: string, separator: string, newFields: string[]): Toon => {
+        const newSchema = { ...this.dataset.schema };
+        newFields.forEach(f => {
+          newSchema[f] = 'string';
+        });
+
+        return new Toon({
+          ...this.dataset,
+          schema: newSchema,
+          rows: this.dataset.rows.map(row => {
+            const parts = String(row[field]).split(separator);
+            const newRow = { ...row };
+            newFields.forEach((f, idx) => {
+              newRow[f] = parts[idx] || '';
+            });
+            return newRow;
+          }),
+        });
+      },
+
+      /**
+       * Extrae substring usando regex
+       */
+      extract: (field: string, pattern: RegExp, newField: string): Toon => {
+        return new Toon({
+          ...this.dataset,
+          schema: { ...this.dataset.schema, [newField]: 'string' },
+          rows: this.dataset.rows.map(row => {
+            const match = String(row[field]).match(pattern);
+            return {
+              ...row,
+              [newField]: match ? match[0] : '',
+            };
+          }),
+        });
+      },
+    };
+  }
+
+  // ========== NIVEL 3: NICE TO HAVE ==========
+
+  /**
+   * Convierte de formato wide a long (unpivot)
+   * Similar a pandas.melt()
+   */
+  melt(
+    idVars: string[],
+    valueVars?: string[],
+    varName: string = 'variable',
+    valueName: string = 'value'
+  ): Toon {
+    const valueCols = valueVars || Object.keys(this.dataset.schema).filter(
+      f => !idVars.includes(f)
+    );
+
+    const result: Record<string, unknown>[] = [];
+
+    for (const row of this.dataset.rows) {
+      for (const col of valueCols) {
+        const newRow: Record<string, unknown> = {};
+
+        // Copiar variables de identificación
+        for (const idVar of idVars) {
+          newRow[idVar] = row[idVar];
+        }
+
+        // Agregar variable y valor
+        newRow[varName] = col;
+        newRow[valueName] = row[col];
+
+        result.push(newRow);
+      }
+    }
+
+    const newSchema: ToonSchema = {};
+    idVars.forEach(v => {
+      newSchema[v] = this.dataset.schema[v] || 'string';
+    });
+    newSchema[varName] = 'string';
+    newSchema[valueName] = 'unknown';
+
+    return new Toon({
+      name: `${this.dataset.name}_melted`,
+      schema: newSchema,
+      rows: result,
+    });
+  }
+
+  /**
+   * Tabla de tabulación cruzada
+   * Similar a pandas.crosstab()
+   */
+  crosstab(row: string, col: string, normalize: boolean = false): Toon {
+    const rowValues = this.distinct(row);
+    const colValues = this.distinct(col);
+
+    const counts: Record<string, Record<string, number>> = {};
+    let total = 0;
+
+    // Inicializar contadores
+    for (const r of rowValues) {
+      counts[String(r)] = {};
+      for (const c of colValues) {
+        counts[String(r)][String(c)] = 0;
+      }
+    }
+
+    // Contar ocurrencias
+    for (const dataRow of this.dataset.rows) {
+      const rowKey = String(dataRow[row]);
+      const colKey = String(dataRow[col]);
+
+      if (counts[rowKey] && counts[rowKey][colKey] !== undefined) {
+        counts[rowKey][colKey]++;
+        total++;
+      }
+    }
+
+    // Crear resultado
+    const result: Record<string, unknown>[] = [];
+    const newSchema: ToonSchema = { [row]: 'string' };
+
+    colValues.forEach(c => {
+      newSchema[String(c)] = 'number';
+    });
+
+    for (const r of rowValues) {
+      const resultRow: Record<string, unknown> = { [row]: r };
+
+      for (const c of colValues) {
+        const count = counts[String(r)][String(c)];
+        resultRow[String(c)] = normalize && total > 0 ? count / total : count;
+      }
+
+      result.push(resultRow);
+    }
+
+    return new Toon({
+      name: `${this.dataset.name}_crosstab`,
+      schema: newSchema,
+      rows: result,
+    });
+  }
+
+  /**
+   * Interpola valores faltantes
+   * Similar a pandas.interpolate()
+   */
+  interpolate(
+    fields?: string[],
+    method: 'linear' | 'nearest' = 'linear'
+  ): Toon {
+    const fieldsToInterpolate = fields || Object.keys(this.dataset.schema);
+
+    const newRows = [...this.dataset.rows];
+
+    for (const field of fieldsToInterpolate) {
+      const values = this.pluck(field).map(v => {
+        const num = Number(v);
+        return isNaN(num) || v === null || v === undefined ? null : num;
+      });
+
+      // Encontrar valores válidos y sus índices
+      const validIndices: number[] = [];
+      const validValues: number[] = [];
+
+      values.forEach((v, idx) => {
+        if (v !== null) {
+          validIndices.push(idx);
+          validValues.push(v);
+        }
+      });
+
+      if (validIndices.length === 0) continue;
+
+      // Interpolar
+      for (let i = 0; i < values.length; i++) {
+        if (values[i] === null) {
+          if (method === 'linear') {
+            // Encontrar valores anterior y siguiente
+            let prevIdx = -1;
+            let nextIdx = -1;
+
+            for (let j = i - 1; j >= 0; j--) {
+              if (values[j] !== null) {
+                prevIdx = j;
+                break;
+              }
+            }
+
+            for (let j = i + 1; j < values.length; j++) {
+              if (values[j] !== null) {
+                nextIdx = j;
+                break;
+              }
+            }
+
+            if (prevIdx >= 0 && nextIdx >= 0) {
+              // Interpolación lineal
+              const prevVal = values[prevIdx]!;
+              const nextVal = values[nextIdx]!;
+              const ratio = (i - prevIdx) / (nextIdx - prevIdx);
+              newRows[i][field] = prevVal + ratio * (nextVal - prevVal);
+            } else if (prevIdx >= 0) {
+              // Forward fill
+              newRows[i][field] = values[prevIdx];
+            } else if (nextIdx >= 0) {
+              // Backward fill
+              newRows[i][field] = values[nextIdx];
+            }
+          } else if (method === 'nearest') {
+            // Encontrar el valor más cercano
+            let minDist = Infinity;
+            let nearestValue = null;
+
+            validIndices.forEach((validIdx, j) => {
+              const dist = Math.abs(i - validIdx);
+              if (dist < minDist) {
+                minDist = dist;
+                nearestValue = validValues[j];
+              }
+            });
+
+            if (nearestValue !== null) {
+              newRows[i][field] = nearestValue;
+            }
+          }
+        }
+      }
+    }
+
+    return new Toon({
+      ...this.dataset,
+      rows: newRows,
+    });
+  }
 }
