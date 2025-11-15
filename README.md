@@ -3,7 +3,7 @@
 **A high-performance TypeScript library for tabular data manipulation with a custom TOON format**
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/tests-75%20passing-brightgreen.svg)](https://github.com/cescofors75/toonjs)
+[![Tests](https://img.shields.io/badge/tests-102%20passing-brightgreen.svg)](https://github.com/cescofors75/toonjs)
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](https://github.com/cescofors75/toonjs)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Performance](https://img.shields.io/badge/performance-+99%25-orange.svg)](https://github.com/cescofors75/toonjs/blob/main/PERFORMANCE.md)
@@ -16,7 +16,7 @@
 
 ### 📖 Overview
 
-ToonJS is a powerful, zero-dependency TypeScript library for working with tabular data. It introduces the TOON format - a human-readable, efficient way to represent datasets - and provides 60+ optimized methods for data manipulation, analysis, and transformation.
+ToonJS is a powerful, zero-dependency TypeScript library for working with tabular data. It introduces the TOON format - a human-readable, efficient way to represent datasets - and provides 75+ optimized methods for data manipulation, analysis, and transformation, including pandas-like DataFrame operations.
 
 ### ✨ Key Features
 
@@ -24,9 +24,10 @@ ToonJS is a powerful, zero-dependency TypeScript library for working with tabula
 - **📦 Zero Dependencies**: Pure TypeScript, no external packages
 - **🎯 Type-Safe**: Full TypeScript support with comprehensive type definitions
 - **🔗 Chainable API**: Fluent interface for elegant data pipelines
-- **📊 Rich Functionality**: 60+ methods covering filtering, aggregation, statistics, and more
+- **📊 Rich Functionality**: 75+ methods covering filtering, aggregation, statistics, and more
+- **🐼 Pandas-Like**: Familiar DataFrame methods (fillna, dropna, merge, pivot, melt, etc.)
 - **🎨 Custom Format**: TOON format - compact and human-readable
-- **✅ Well-Tested**: 77 comprehensive tests with 100% coverage
+- **✅ Well-Tested**: 102 comprehensive tests with 100% coverage
 - **🌐 Universal**: Works in Node.js and browsers
 
 ### 🚀 Quick Start
@@ -172,6 +173,42 @@ products[2]{id,name,price}:
 ```typescript
 .concat(other)           // Concatenate datasets
 .join(other, on)         // Inner join
+.merge(other, options)   // Full merge (inner/left/right/outer/cross)
+```
+
+#### DataFrame Operations (Pandas-like)
+
+```typescript
+// Missing data handling
+.fillna(value, fields)   // Fill null values
+.dropna(fields, how)     // Drop rows with nulls
+.interpolate(fields, method) // Interpolate missing values
+
+// Statistical analysis
+.describe(fields)        // Statistical summary (count, mean, std, percentiles, etc.)
+.crosstab(row, col)      // Cross-tabulation
+
+// Data transformation
+.pivot(index, cols, vals, aggFunc) // Create pivot table
+.melt(idVars, valueVars) // Wide to long format (unpivot)
+.replace(toReplace, value) // Replace values
+.shift(periods, fields)  // Shift values up/down
+
+// Sampling & duplicates
+.sample(n, frac)         // Random sampling
+.duplicated(fields, keep) // Mark duplicate rows
+
+// String operations
+.str.upper(fields)       // Convert to uppercase
+.str.lower(fields)       // Convert to lowercase
+.str.trim(fields)        // Trim whitespace
+.str.contains(field, substring) // Check if contains
+.str.startsWith(field, str) // Check if starts with
+.str.endsWith(field, str) // Check if ends with
+.str.replace(field, search, replacement) // Replace substring
+.str.split(field, sep, newFields) // Split string
+.str.extract(field, pattern, newField) // Extract with regex
+.str.length(field)       // Get string length
 ```
 
 #### Validation
@@ -193,6 +230,113 @@ products[2]{id,name,price}:
 ```
 
 ### 🎯 Advanced Examples
+
+#### Data Cleaning & Preparation
+
+```typescript
+// Handle missing data and prepare for analysis
+const cleaned = data
+  .dropna(['price', 'quantity'], 'any')  // Drop rows with nulls
+  .fillna(0, ['discount'])               // Fill remaining nulls
+  .replace({ 'N/A': null, '': null })    // Replace invalid values
+  .duplicated(['id'], 'first')           // Check for duplicates
+  .interpolate(['sales'], 'linear');     // Interpolate missing values
+```
+
+#### Pivot Tables & Aggregation
+
+```typescript
+// Create sales pivot table
+const salesPivot = data
+  .pivot('region', 'product', 'sales', 'sum');
+
+// Cross-tabulation analysis
+const crosstab = data
+  .crosstab('gender', 'preference', true); // normalized
+
+// Statistical summary
+const stats = data.describe(['price', 'quantity', 'sales']);
+console.log(stats);
+// {
+//   price: { count: 100, mean: 25.5, std: 5.2, min: 10, '25%': 20, ... },
+//   quantity: { ... }
+// }
+```
+
+#### Complex Joins & Merges
+
+```typescript
+// Full outer join with suffix handling
+const merged = customers.merge(orders, {
+  leftOn: 'customer_id',
+  rightOn: 'id',
+  how: 'outer',
+  suffixes: ['_customer', '_order']
+});
+
+// Cross join for all combinations
+const combinations = colors.merge(sizes, { how: 'cross' });
+```
+
+#### String Operations
+
+```typescript
+// Text cleaning and transformation
+const processed = data
+  .str.trim(['name'])
+  .str.upper(['code'])
+  .str.replace('email', /\.com$/, '.org');
+
+// Extract information with regex
+const extracted = data
+  .str.extract('description', /\d+/, 'quantity')
+  .str.split('fullName', ' ', ['firstName', 'lastName']);
+
+// Filter by string patterns
+const filtered = data
+  .filter((row, idx) =>
+    data.str.contains('category', 'electronics')[idx]
+  );
+```
+
+#### Sampling & Duplicates
+
+```typescript
+// Random sampling
+const sample = data.sample(100);           // 100 random rows
+const sampleFrac = data.sample(undefined, 0.1); // 10% of data
+
+// Find and handle duplicates
+const dups = data.duplicated(['email', 'phone']);
+const uniqueData = data.filter((row, idx) => !dups[idx]);
+```
+
+#### Data Reshaping
+
+```typescript
+// Wide to long format
+const melted = data.melt(
+  ['id', 'name'],           // ID variables
+  ['q1', 'q2', 'q3', 'q4'], // Value variables
+  'quarter',                 // Variable name
+  'sales'                    // Value name
+);
+
+// Long to wide format (pivot)
+const wide = melted.pivot('id', 'quarter', 'sales', 'avg');
+```
+
+#### Time Series with Shifts
+
+```typescript
+// Create lagged features
+const withLags = data
+  .shift(1, ['price'], null)  // Previous day price
+  .shift(-1, ['price'], null) // Next day price
+  .addField('price_change', row =>
+    row.price - row.price_shift_1
+  );
+```
 
 #### Data Analysis Pipeline
 
@@ -245,7 +389,7 @@ npm test              # Run all tests
 npm run build         # Build TypeScript
 ```
 
-All 77 tests passing with 100% coverage.
+All 102 tests passing with 100% coverage.
 
 ### 📄 License
 
@@ -268,7 +412,7 @@ Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md)
 
 ### 📖 Descripción
 
-ToonJS es una poderosa biblioteca TypeScript sin dependencias para trabajar con datos tabulares. Introduce el formato TOON - una forma legible y eficiente de representar conjuntos de datos - y proporciona más de 60 métodos optimizados para manipulación, análisis y transformación de datos.
+ToonJS es una poderosa biblioteca TypeScript sin dependencias para trabajar con datos tabulares. Introduce el formato TOON - una forma legible y eficiente de representar conjuntos de datos - y proporciona más de 75 métodos optimizados para manipulación, análisis y transformación de datos, incluyendo operaciones tipo DataFrame de pandas.
 
 ### ✨ Características Principales
 
@@ -276,9 +420,10 @@ ToonJS es una poderosa biblioteca TypeScript sin dependencias para trabajar con 
 - **📦 Sin Dependencias**: TypeScript puro, sin paquetes externos
 - **🎯 Type-Safe**: Soporte completo de TypeScript con definiciones exhaustivas
 - **🔗 API Encadenable**: Interfaz fluida para pipelines elegantes
-- **📊 Funcionalidad Rica**: Más de 60 métodos cubriendo filtrado, agregación, estadísticas y más
+- **📊 Funcionalidad Rica**: Más de 75 métodos cubriendo filtrado, agregación, estadísticas y más
+- **🐼 Estilo Pandas**: Métodos familiares de DataFrame (fillna, dropna, merge, pivot, melt, etc.)
 - **🎨 Formato Personalizado**: Formato TOON - compacto y legible
-- **✅ Bien Probado**: 77 tests exhaustivos con 100% de cobertura
+- **✅ Bien Probado**: 102 tests exhaustivos con 100% de cobertura
 - **🌐 Universal**: Funciona en Node.js y navegadores
 
 ### 🚀 Inicio Rápido
@@ -366,7 +511,7 @@ npm test              # Ejecutar todos los tests
 npm run build         # Compilar TypeScript
 ```
 
-Los 77 tests pasan con 100% de cobertura.
+Los 102 tests pasan con 100% de cobertura.
 
 ### 📄 Licencia
 

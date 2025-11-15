@@ -1,7 +1,7 @@
 {
   "name": "@cescofors/toonjs",
-  "version": "1.0.2",
-  "description": "High-performance TypeScript library for tabular data manipulation with 60+ optimized methods. Up to 3.5x faster than manual operations. Zero dependencies.",
+  "version": "1.1.0",
+  "description": "High-performance TypeScript library for tabular data manipulation with 75+ optimized methods including pandas-like DataFrame operations. Up to 3.5x faster than manual operations. Zero dependencies.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
@@ -25,6 +25,7 @@
     "analysis",
     "statistics",
     "dataframe",
+    "pandas",
     "etl",
     "pipeline",
     "performance",
@@ -33,7 +34,11 @@
     "aggregation",
     "correlation",
     "timeseries",
-    "ranking"
+    "ranking",
+    "pivot",
+    "merge",
+    "fillna",
+    "dropna"
   ],
   "author": "Cesco",
   "license": "MIT",
