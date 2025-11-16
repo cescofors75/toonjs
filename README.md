@@ -22,7 +22,7 @@ ToonJS is a powerful, zero-dependency TypeScript library for working with tabula
 
 ### ✨ Key Features
 
-- **🚀 High Performance**: Promedio 2.2x más rápido que operaciones manuales, hasta 3.5x en operaciones como correlación y normalización (optimizado con técnicas estilo DOOM)
+- **🚀 High Performance**: Promedio 2.2x más rápido que operaciones manuales, hasta 3.5x en operaciones como correlación y normalización
 - **📦 Zero Dependencies**: Pure TypeScript, no external packages
 - **🎯 Type-Safe**: Full TypeScript support with comprehensive type definitions
 - **🔗 Chainable API**: Fluent interface for elegant data pipelines
@@ -281,7 +281,7 @@ ToonJS es una poderosa biblioteca TypeScript sin dependencias para trabajar con 
 
 ### ✨ Características Principales
 
-- **🚀 Alto Rendimiento**: Promedio 2.2x más rápido que operaciones manuales, hasta 3.5x en operaciones como correlación y normalización (optimizado con técnicas estilo DOOM)
+- **🚀 Alto Rendimiento**: Promedio 2.2x más rápido que operaciones manuales, hasta 3.5x en operaciones como correlación y normalización
 - **📦 Sin Dependencias**: TypeScript puro, sin paquetes externos
 - **🎯 Type-Safe**: Soporte completo de TypeScript con definiciones exhaustivas
 - **🔗 API Encadenable**: Interfaz fluida para pipelines elegantes
