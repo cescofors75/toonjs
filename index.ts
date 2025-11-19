@@ -9,3 +9,4 @@ export * from './parser';
 export * from './toon';
 export * from './types';
 export * from './factory';
+export { logger } from './logger';
