@@ -98,11 +98,13 @@ if (consoleResults && pinoResults) {
   }
   
   console.log('');
-  console.log('📋 Notas:');
-  console.log('   • En producción (NODE_ENV=production), Pino.js es ~5-10x más rápido');
-  console.log('   • El overhead actual se debe a pino-pretty (formateo para desarrollo)');
-  console.log('   • Console.log bloquea el event loop, Pino.js usa buffers asíncronos');
+  console.log('📋 Notas importantes:');
+  console.log('   • Este benchmark hace 200+ logs por ejecución (caso extremo)');
+  console.log('   • El overhead de pino-pretty (formateo coloreado) afecta en desarrollo');
+  console.log('   • Console.log es síncrono y bloquea el event loop');
+  console.log('   • Pino.js usa buffers asíncronos - no bloquea la aplicación');
   console.log('   • Pino.js ofrece logging estructurado (JSON) para análisis posterior');
+  console.log('   • Para producción, usar NODE_ENV=production (JSON puro, sin pretty)');
   
   console.log('');
   console.log('═'.repeat(70));
