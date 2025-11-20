@@ -1,7 +1,7 @@
 {
   "name": "@cescofors/toonjs",
-  "version": "1.0.6",
-  "description": "High-performance TypeScript library for tabular data manipulation with 64+ optimized methods. Up to 3.5x faster than manual operations. Zero dependencies.",
+  "version": "1.1.0",
+  "description": "High-performance TypeScript library for tabular data manipulation with 100+ optimized methods. Powered by Float64Array Columnar Architecture. Zero dependencies.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
@@ -16,7 +16,11 @@
     "test:coverage": "jest --coverage",
     "prepublishOnly": "npm run build && npm run test",
     "lint": "eslint src/**/*.ts",
-    "format": "prettier --write src/**/*.ts"
+    "format": "prettier --write src/**/*.ts",
+    "asbuild:debug": "asc assembly/index.ts --target debug",
+    "asbuild:release": "asc assembly/index.ts --target release",
+    "asbuild": "npm run asbuild:debug && npm run asbuild:release",
+    "start": "npx serve ."
   },
   "keywords": [
     "typescript",
@@ -50,6 +54,7 @@
     "@types/node": "^20.0.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
+    "assemblyscript": "^0.28.9",
     "eslint": "^8.0.0",
     "jest": "^29.5.0",
     "prettier": "^3.0.0",
@@ -60,7 +65,14 @@
     "node": ">=16.0.0"
   },
   "dependencies": {
+    "@assemblyscript/loader": "^0.28.9",
     "pino": "^10.1.0",
     "pino-pretty": "^13.1.2"
+  },
+  "exports": {
+    ".": {
+      "import": "./build/release.js",
+      "types": "./build/release.d.ts"
+    }
   }
 }

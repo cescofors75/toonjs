@@ -17,5 +17,5 @@
     "allowSyntheticDefaultImports": true
   },
   "include": ["*.ts"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "ejemplos-*.ts", "find-*.ts"]
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "ejemplos-*.ts", "find-*.ts", "assembly"]
 }

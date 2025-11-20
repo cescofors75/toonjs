@@ -2,44 +2,140 @@
  * Clase principal Toon para manipular datasets
  */
 
-import { ToonDataset, ToonSchema, ToonPredicateFn, ToonMapFn, ToonCompareFn, ToonReduceFn } from './types';
+import { ToonDataset, ToonSchema, ToonPredicateFn, ToonMapFn, ToonCompareFn, ToonReduceFn, ToonColumnMap } from './types';
 
 export class Toon {
-  private dataset: ToonDataset;
+  private _name: string;
+  private _schema: ToonSchema;
+  private _columns: ToonColumnMap;
+  private _rowCount: number;
 
   constructor(dataset: ToonDataset) {
-    this.dataset = dataset;
+    this._name = dataset.name;
+    this._schema = dataset.schema;
+    this._rowCount = dataset.rows.length;
+    this._columns = new Map();
+
+    // Initialize columns
+    const fields = Object.keys(this._schema);
+    for (const field of fields) {
+      const type = this._schema[field];
+      if (type === 'number') {
+        this._columns.set(field, new Float64Array(this._rowCount));
+      } else {
+        this._columns.set(field, new Array(this._rowCount));
+      }
+    }
+
+    // Populate columns
+    for (let i = 0; i < this._rowCount; i++) {
+      const row = dataset.rows[i];
+      for (const field of fields) {
+        const col = this._columns.get(field)!;
+        const val = row[field];
+        if (col instanceof Float64Array) {
+           const num = Number(val);
+           // Allow NaN for missing values instead of forcing 0
+           col[i] = num;
+        } else {
+           (col as unknown[])[i] = val;
+        }
+      }
+    }
+  }
+
+  /**
+   * Getter for backward compatibility
+   * WARNING: Expensive operation, reconstructs all rows
+   */
+  get rows(): Record<string, unknown>[] {
+    const result: Record<string, unknown>[] = new Array(this._rowCount);
+    const fields = Object.keys(this._schema);
+    
+    for (let i = 0; i < this._rowCount; i++) {
+      const row: Record<string, unknown> = {};
+      for (const field of fields) {
+        const col = this._columns.get(field)!;
+        row[field] = col[i];
+      }
+      result[i] = row;
+    }
+    return result;
+  }
+
+  get dataset(): ToonDataset {
+    return {
+      name: this._name,
+      schema: this._schema,
+      rows: this.rows
+    };
+  }
+
+  /**
+   * Helper to get a single row without reconstructing everything
+   */
+  private getRow(index: number): Record<string, unknown> {
+    const row: Record<string, unknown> = {};
+    for (const field of Object.keys(this._schema)) {
+      const col = this._columns.get(field)!;
+      row[field] = col[index];
+    }
+    return row;
   }
 
   /**
    * Encuentra el primer elemento que cumple la condición
    */
   find(predicate: ToonPredicateFn): Record<string, unknown> | undefined {
-    return this.dataset.rows.find(predicate);
+    for (let i = 0; i < this._rowCount; i++) {
+      const row = this.getRow(i);
+      if (predicate(row, i)) {
+        return row;
+      }
+    }
+    return undefined;
   }
 
   /**
    * Encuentra todos los elementos que cumplen la condición
    */
   findAll(predicate: ToonPredicateFn): Record<string, unknown>[] {
-    return this.dataset.rows.filter(predicate);
+    const result: Record<string, unknown>[] = [];
+    for (let i = 0; i < this._rowCount; i++) {
+      const row = this.getRow(i);
+      if (predicate(row, i)) {
+        result.push(row);
+      }
+    }
+    return result;
   }
 
   /**
    * Mapea cada fila a un nuevo valor
    */
   map<T>(callback: ToonMapFn<Record<string, unknown>, T>): T[] {
-    return this.dataset.rows.map(callback);
+    const result: T[] = new Array(this._rowCount);
+    for (let i = 0; i < this._rowCount; i++) {
+      result[i] = callback(this.getRow(i), i);
+    }
+    return result;
   }
 
   /**
    * Filtra filas según una condición
    */
   filter(predicate: ToonPredicateFn): Toon {
-    const filtered = this.dataset.rows.filter(predicate);
+    const filteredRows: Record<string, unknown>[] = [];
+    for (let i = 0; i < this._rowCount; i++) {
+      const row = this.getRow(i);
+      if (predicate(row, i)) {
+        filteredRows.push(row);
+      }
+    }
     return new Toon({
-      ...this.dataset,
-      rows: filtered,
+      name: this._name,
+      schema: this._schema,
+      rows: filteredRows,
     });
   }
 
@@ -48,23 +144,31 @@ export class Toon {
    * OPTIMIZADO: evita crear Toon intermedio
    */
   mapRows<T>(callback: (row: Record<string, unknown>, index: number) => T): T[] {
-    return this.dataset.rows.map(callback);
+    return this.map(callback);
   }
 
   /**
    * Reduce el dataset a un único valor
    */
   reduce<T>(callback: ToonReduceFn<Record<string, unknown>, T>, initialValue: T): T {
-    return this.dataset.rows.reduce(callback, initialValue);
+    let accumulator = initialValue;
+    for (let i = 0; i < this._rowCount; i++) {
+      accumulator = callback(accumulator, this.getRow(i), i);
+    }
+    return accumulator;
   }
 
   /**
    * Ordena las filas
    */
   sort(compareFn?: ToonCompareFn): Toon {
-    const sorted = [...this.dataset.rows].sort(compareFn);
+    // For sort, we must reconstruct rows because native sort needs objects
+    // Optimization: Sort indices instead?
+    // Let's stick to reconstruction for safety now
+    const sorted = this.rows.sort(compareFn);
     return new Toon({
-      ...this.dataset,
+      name: this._name,
+      schema: this._schema,
       rows: sorted,
     });
   }
@@ -73,49 +177,48 @@ export class Toon {
    * Agrupa filas por un campo
    */
   groupBy(field: string): Record<string, Record<string, unknown>[]> {
-    return this.dataset.rows.reduce<Record<string, Record<string, unknown>[]>>(
-      (acc, row) => {
-        const key = String(row[field]);
-        if (!acc[key]) acc[key] = [];
-        acc[key].push(row);
-        return acc;
-      },
-      {}
-    );
+    const result: Record<string, Record<string, unknown>[]> = {};
+    for (let i = 0; i < this._rowCount; i++) {
+      const row = this.getRow(i);
+      const key = String(row[field]);
+      if (!result[key]) result[key] = [];
+      result[key].push(row);
+    }
+    return result;
   }
 
   /**
    * Cuenta el total de filas
    */
   count(): number {
-    return this.dataset.rows.length;
+    return this._rowCount;
   }
 
   /**
    * Obtiene todas las filas
    */
   all(): Record<string, unknown>[] {
-    return this.dataset.rows;
+    return this.rows;
   }
 
   /**
    * Obtiene el esquema
    */
   schema(): ToonSchema {
-    return this.dataset.schema;
+    return this._schema;
   }
 
   /**
    * Convierte a formato Toon optimizado
    */
   toToon(): string {
-    const fields = Object.keys(this.dataset.schema);
+    const fields = Object.keys(this._schema);
     const fieldStr = fields.join(',');
-    const count = this.dataset.rows.length;
+    
+    let result = `${this._name}[${this._rowCount}]{${fieldStr}}:\n`;
 
-    let result = `${this.dataset.name}[${count}]{${fieldStr}}:\n`;
-
-    for (const row of this.dataset.rows) {
+    for (let i = 0; i < this._rowCount; i++) {
+      const row = this.getRow(i);
       const values = fields.map(field => String(row[field] ?? '')).join(',');
       result += `  ${values}\n`;
     }
@@ -128,9 +231,9 @@ export class Toon {
    */
   toJSON(): Record<string, unknown> {
     return {
-      name: this.dataset.name,
-      schema: this.dataset.schema,
-      rows: this.dataset.rows,
+      name: this._name,
+      schema: this._schema,
+      rows: this.rows,
     };
   }
 
@@ -138,12 +241,15 @@ export class Toon {
    * Convierte a CSV
    */
   toCSV(): string {
-    const fields = Object.keys(this.dataset.schema);
+    const fields = Object.keys(this._schema);
     const header = fields.join(',');
-    const rows = this.dataset.rows
-      .map(row => fields.map(field => String(row[field] ?? '')).join(','))
-      .join('\n');
-    return `${header}\n${rows}`;
+    let rowsStr = '';
+    
+    for (let i = 0; i < this._rowCount; i++) {
+      const row = this.getRow(i);
+      rowsStr += fields.map(field => String(row[field] ?? '')).join(',') + '\n';
+    }
+    return `${header}\n${rowsStr.trim()}`;
   }
 
   // ========== NUEVAS FUNCIONALIDADES ==========
@@ -451,23 +557,58 @@ export class Toon {
 
   /**
    * Obtiene estadísticas de un campo numérico
+   * ULTRA-OPTIMIZADO: Acceso directo a columna
    */
   stats(field: string): { min: number; max: number; avg: number; sum: number; count: number } {
-    const values = this.dataset.rows
-      .map(row => Number(row[field]))
-      .filter(v => !isNaN(v));
-
-    if (values.length === 0) {
+    const col = this._columns.get(field);
+    
+    if (!col) {
       return { min: 0, max: 0, avg: 0, sum: 0, count: 0 };
     }
 
-    const sum = values.reduce((a, b) => a + b, 0);
+    let min = Infinity;
+    let max = -Infinity;
+    let sum = 0;
+    let count = 0;
+
+    if (col instanceof Float64Array) {
+      // Fast path for numeric columns
+      for (let i = 0; i < this._rowCount; i++) {
+        const val = col[i];
+        // Check for NaN (Float64Array initializes to 0, but we might have stored NaNs)
+        // Note: In our current implementation, we store numbers. 
+        // If we want to support "missing" values as NaN in Float64Array, we need to check.
+        if (!isNaN(val)) {
+          if (val < min) min = val;
+          if (val > max) max = val;
+          sum += val;
+          count++;
+        }
+      }
+    } else {
+      // Slow path for mixed/string columns
+      const arr = col as unknown[];
+      for (let i = 0; i < this._rowCount; i++) {
+        const val = Number(arr[i]);
+        if (!isNaN(val)) {
+          if (val < min) min = val;
+          if (val > max) max = val;
+          sum += val;
+          count++;
+        }
+      }
+    }
+
+    if (count === 0) {
+      return { min: 0, max: 0, avg: 0, sum: 0, count: 0 };
+    }
+
     return {
-      min: Math.min(...values),
-      max: Math.max(...values),
-      avg: sum / values.length,
+      min,
+      max,
+      avg: sum / count,
       sum,
-      count: values.length,
+      count,
     };
   }
 
@@ -520,12 +661,59 @@ export class Toon {
 
   /**
    * Filtra por rango de valores
+   * ULTRA-OPTIMIZADO: Escaneo columnar y reconstrucción directa
    */
   filterRange(field: string, min: number, max: number): Toon {
-    return this.filter(row => {
-      const value = Number(row[field]);
-      return !isNaN(value) && value >= min && value <= max;
-    });
+    const col = this._columns.get(field);
+    // If column doesn't exist, return empty Toon
+    if (!col) {
+       return Toon.createFromColumns(this._name, this._schema, new Map(), 0);
+    }
+
+    const indices: number[] = [];
+    
+    // 1. Scan column to find matching indices
+    if (col instanceof Float64Array) {
+      for (let i = 0; i < this._rowCount; i++) {
+        const val = col[i];
+        // Float64Array contains NaN for missing values. 
+        // Comparisons with NaN are always false, so this naturally excludes them.
+        if (val >= min && val <= max) {
+          indices.push(i);
+        }
+      }
+    } else {
+      const arr = col as unknown[];
+      for (let i = 0; i < this._rowCount; i++) {
+        const val = Number(arr[i]);
+        if (!isNaN(val) && val >= min && val <= max) {
+          indices.push(i);
+        }
+      }
+    }
+
+    // 2. Create new columns subset
+    const newCount = indices.length;
+    const newColumns: ToonColumnMap = new Map();
+
+    for (const [key, srcCol] of this._columns.entries()) {
+      if (srcCol instanceof Float64Array) {
+        const newCol = new Float64Array(newCount);
+        for (let i = 0; i < newCount; i++) {
+          newCol[i] = srcCol[indices[i]];
+        }
+        newColumns.set(key, newCol);
+      } else {
+        const srcArr = srcCol as unknown[];
+        const newCol = new Array(newCount);
+        for (let i = 0; i < newCount; i++) {
+          newCol[i] = srcArr[indices[i]];
+        }
+        newColumns.set(key, newCol);
+      }
+    }
+
+    return Toon.createFromColumns(this._name, this._schema, newColumns, newCount);
   }
 
   /**
@@ -702,312 +890,523 @@ export class Toon {
   }
 
   /**
-   * Transpone el dataset (filas <-> columnas)
-   * ULTRA-OPTIMIZADO: usa Object.assign masivo para evitar loop de asignaciones
+   * Internal helper to create Toon instance from columns directly
    */
-  transpose(): Toon {
-    const fields = Object.keys(this.dataset.schema);
-    const rowCount = this.dataset.rows.length;
-    
-    if (rowCount === 0) return this.clone();
-
-    const colCount = fields.length;
-    const rows = this.dataset.rows;
-    
-    // Pre-crear schema y nombres de columnas
-    const newSchema: ToonSchema = {};
-    const colNames: string[] = new Array(rowCount);
-    
-    for (let i = 0; i < rowCount; i++) {
-      const colName = `row_${i}`;
-      colNames[i] = colName;
-      newSchema[colName] = 'number';
-    }
-    
-    // Crear filas transpuestas
-    const newRows: Record<string, unknown>[] = new Array(colCount);
-    
-    // Transponer: extraer columnas completas de una vez
-    for (let col = 0; col < colCount; col++) {
-      const field = fields[col];
-      const newRow: Record<string, unknown> = {};
-      
-      // Extraer toda la columna
-      for (let row = 0; row < rowCount; row++) {
-        const val = rows[row][field];
-        newRow[colNames[row]] = typeof val === 'number' ? val : (Number(val) || 0);
-      }
-      
-      newRows[col] = newRow;
-    }
-
-    return new Toon({
-      name: `${this.dataset.name}_transposed`,
-      schema: newSchema,
-      rows: newRows,
-    });
+  private static createFromColumns(name: string, schema: ToonSchema, columns: ToonColumnMap, rowCount: number): Toon {
+    // Create a dummy instance
+    const toon = new Toon({ name, schema, rows: [] });
+    // Inject internal state
+    (toon as any)._columns = columns;
+    (toon as any)._rowCount = rowCount;
+    return toon;
   }
 
   /**
    * Multiplica todos los valores numéricos por un escalar
-   * OPTIMIZADO: spread operator simple (más rápido que Object.create)
+   * ULTRA-OPTIMIZADO: Usa Float64Array directamente
    */
   multiplyScalar(scalar: number, fields?: string[]): Toon {
-    const fieldsToMultiply = fields || Object.keys(this.dataset.schema);
-    const rowCount = this.dataset.rows.length;
-    const newRows: Record<string, unknown>[] = new Array(rowCount);
-    
-    // Fast path: 1 solo campo
-    if (fieldsToMultiply.length === 1) {
-      const field = fieldsToMultiply[0];
-      
-      for (let i = 0; i < rowCount; i++) {
-        const row = this.dataset.rows[i];
-        const newRow = { ...row };
-        const val = Number(row[field]);
-        if (!isNaN(val)) {
-          newRow[field] = val * scalar;
-        }
-        newRows[i] = newRow;
-      }
-    } else {
-      // Caso general: múltiples campos
-      for (let i = 0; i < rowCount; i++) {
-        const row = this.dataset.rows[i];
-        const newRow = { ...row };
-        
-        for (const field of fieldsToMultiply) {
-          const val = Number(newRow[field]);
-          if (!isNaN(val)) {
-            newRow[field] = val * scalar;
+    const newColumns: ToonColumnMap = new Map();
+    const fieldsToProcess = fields ? new Set(fields) : null;
+
+    for (const [field, col] of this._columns.entries()) {
+      if (!fieldsToProcess || fieldsToProcess.has(field)) {
+        if (col instanceof Float64Array) {
+          const newCol = new Float64Array(this._rowCount);
+          for (let i = 0; i < this._rowCount; i++) {
+            newCol[i] = col[i] * scalar;
           }
+          newColumns.set(field, newCol);
+        } else {
+          // Handle Array columns (slow path)
+          const newCol = new Array(this._rowCount);
+          const src = col as unknown[];
+          for (let i = 0; i < this._rowCount; i++) {
+            const val = Number(src[i]);
+            newCol[i] = !isNaN(val) ? val * scalar : src[i];
+          }
+          newColumns.set(field, newCol);
         }
-        
-        newRows[i] = newRow;
+      } else {
+        // Copy non-selected columns
+        if (col instanceof Float64Array) {
+           newColumns.set(field, new Float64Array(col));
+        } else {
+           newColumns.set(field, [...(col as unknown[])]);
+        }
       }
     }
 
-    return new Toon({
-      ...this.dataset,
-      rows: newRows,
-    });
+    return Toon.createFromColumns(this._name, this._schema, newColumns, this._rowCount);
+  }
+
+  /**
+   * Transpone el dataset (filas <-> columnas)
+   * ULTRA-OPTIMIZADO: Acceso directo a memoria columnar
+   */
+  transpose(): Toon {
+    const fields = Object.keys(this._schema);
+    const newRowCount = fields.length;
+    const newSchema: ToonSchema = {};
+    const newColumns: ToonColumnMap = new Map();
+
+    // Create new schema (row_0, row_1, ...)
+    for (let i = 0; i < this._rowCount; i++) {
+      const colName = `row_${i}`;
+      newSchema[colName] = 'number';
+      newColumns.set(colName, new Float64Array(newRowCount));
+    }
+
+    // Transpose logic
+    for (let colIdx = 0; colIdx < fields.length; colIdx++) {
+      const field = fields[colIdx];
+      const srcCol = this._columns.get(field)!;
+
+      for (let rowIdx = 0; rowIdx < this._rowCount; rowIdx++) {
+        const destColName = `row_${rowIdx}`;
+        const destCol = newColumns.get(destColName) as Float64Array;
+        
+        const val = srcCol[rowIdx];
+        destCol[colIdx] = typeof val === 'number' ? val : (Number(val) || 0);
+      }
+    }
+
+    return Toon.createFromColumns(
+      `${this._name}_transposed`,
+      newSchema,
+      newColumns,
+      newRowCount
+    );
   }
 
   /**
    * Suma de matrices elemento por elemento
-   * DOOM-STYLE: pre-compute índices, eliminar branches en loop
+   * ULTRA-OPTIMIZADO: Operaciones vectorizadas sobre columnas
    */
   addMatrix(other: Toon, fields?: string[]): Toon {
-    const fieldsToAdd = fields || Object.keys(this.dataset.schema);
-    const otherRows = other.all();
-
-    if (this.count() !== otherRows.length) {
+    if (this._rowCount !== other.count()) {
       throw new Error('Datasets must have the same number of rows');
     }
 
-    const rowCount = this.dataset.rows.length;
-    const rows = this.dataset.rows;
-    const newRows: Record<string, unknown>[] = new Array(rowCount);
+    const fieldsToAdd = fields ? new Set(fields) : null;
+    const newColumns: ToonColumnMap = new Map();
     
-    // Pre-compute field indices
-    const keys = Object.keys(rows[0] || {});
-    const fieldSet = new Set(fieldsToAdd);
-    const addIndices: number[] = [];
-    const copyIndices: number[] = [];
-    
-    for (let k = 0; k < keys.length; k++) {
-      if (fieldSet.has(keys[k])) {
-        addIndices.push(k);
+    // Access private _columns of 'other' (allowed in TS for same class)
+    const otherColumns = (other as any)._columns as ToonColumnMap;
+
+    for (const [field, col] of this._columns.entries()) {
+      const otherCol = otherColumns.get(field);
+
+      // If field should be added and exists in other dataset
+      if ((!fieldsToAdd || fieldsToAdd.has(field)) && otherCol) {
+        if (col instanceof Float64Array && otherCol instanceof Float64Array) {
+          // Fast path: Vectorized addition
+          const newCol = new Float64Array(this._rowCount);
+          for (let i = 0; i < this._rowCount; i++) {
+            newCol[i] = col[i] + otherCol[i];
+          }
+          newColumns.set(field, newCol);
+        } else {
+          // Slow path: Mixed types
+          const newCol = new Array(this._rowCount);
+          const src1 = col as unknown[];
+          const src2 = otherCol as unknown[];
+          for (let i = 0; i < this._rowCount; i++) {
+            const val1 = Number(src1[i]);
+            const val2 = Number(src2[i]);
+            newCol[i] = (!isNaN(val1) && !isNaN(val2)) ? val1 + val2 : src1[i];
+          }
+          newColumns.set(field, newCol);
+        }
       } else {
-        copyIndices.push(k);
+        // Copy original if not adding or not found in other
+        if (col instanceof Float64Array) {
+           newColumns.set(field, new Float64Array(col));
+        } else {
+           newColumns.set(field, [...(col as unknown[])]);
+        }
       }
     }
-    
-    const addCount = addIndices.length;
-    const copyCount = copyIndices.length;
 
-    // Hot path: sin Set.has() en cada iteración
-    for (let i = 0; i < rowCount; i++) {
-      const row = rows[i];
-      const otherRow = otherRows[i];
-      const newRow: Record<string, unknown> = {};
-
-      // Copiar campos sin sumar
-      for (let j = 0; j < copyCount; j++) {
-        const key = keys[copyIndices[j]];
-        newRow[key] = row[key];
-      }
-      
-      // Sumar campos
-      for (let j = 0; j < addCount; j++) {
-        const key = keys[addIndices[j]];
-        const val1 = Number(row[key]);
-        const val2 = Number(otherRow[key]);
-        newRow[key] = (!isNaN(val1) && !isNaN(val2)) ? val1 + val2 : row[key];
-      }
-
-      newRows[i] = newRow;
-    }
-
-    return new Toon({
-      ...this.dataset,
-      rows: newRows,
-    });
+    return Toon.createFromColumns(this._name, this._schema, newColumns, this._rowCount);
   }
 
   /**
    * Producto punto entre dos vectores (filas)
+   * OPTIMIZADO: Acceso directo a columnas
    */
   dotProduct(otherRow: Record<string, unknown>, fields?: string[]): number {
     const fieldsToUse = fields || Object.keys(this.dataset.schema);
-    const firstRow = this.first();
+    
+    if (this._rowCount === 0) return 0;
 
-    if (!firstRow) return 0;
-
-    return fieldsToUse.reduce((sum, field) => {
-      const val1 = Number(firstRow[field]);
-      const val2 = Number(otherRow[field]);
-      if (!isNaN(val1) && !isNaN(val2)) {
-        return sum + val1 * val2;
+    let sum = 0;
+    for (const field of fieldsToUse) {
+      const col = this._columns.get(field);
+      if (col) {
+        const val1 = (col instanceof Float64Array) 
+          ? col[0] 
+          : Number((col as unknown[])[0]);
+          
+        const val2 = Number(otherRow[field]);
+        if (!isNaN(val1) && !isNaN(val2)) {
+          sum += val1 * val2;
+        }
       }
-      return sum;
-    }, 0);
+    }
+    return sum;
   }
 
   /**
    * Calcula la norma (magnitud) de un vector
+   * OPTIMIZADO: Acceso directo a columnas
    */
   norm(type: 'l1' | 'l2' | 'max' = 'l2', fields?: string[]): number {
     const fieldsToUse = fields || Object.keys(this.dataset.schema);
-    const firstRow = this.first();
+    
+    if (this._rowCount === 0) return 0;
 
-    if (!firstRow) return 0;
-
-    const values = fieldsToUse.map(f => Number(firstRow[f])).filter(v => !isNaN(v));
-
-    switch (type) {
-      case 'l1':
-        return values.reduce((sum, v) => sum + Math.abs(v), 0);
-      case 'l2':
-        return Math.sqrt(values.reduce((sum, v) => sum + v * v, 0));
-      case 'max':
-        return Math.max(...values.map(Math.abs));
-      default:
-        return 0;
+    if (type === 'l2') {
+      let sumSq = 0;
+      for (const field of fieldsToUse) {
+        const col = this._columns.get(field);
+        if (col) {
+          const val = (col instanceof Float64Array) 
+            ? col[0] 
+            : Number((col as unknown[])[0]);
+            
+          if (!isNaN(val)) {
+            sumSq += val * val;
+          }
+        }
+      }
+      return Math.sqrt(sumSq);
     }
+
+    if (type === 'l1') {
+      let sum = 0;
+      for (const field of fieldsToUse) {
+        const col = this._columns.get(field);
+        if (col) {
+          const val = (col instanceof Float64Array) 
+            ? col[0] 
+            : Number((col as unknown[])[0]);
+            
+          if (!isNaN(val)) {
+            sum += Math.abs(val);
+          }
+        }
+      }
+      return sum;
+    }
+
+    if (type === 'max') {
+      let max = 0;
+      for (const field of fieldsToUse) {
+        const col = this._columns.get(field);
+        if (col) {
+          const val = (col instanceof Float64Array) 
+            ? col[0] 
+            : Number((col as unknown[])[0]);
+            
+          if (!isNaN(val)) {
+            const abs = Math.abs(val);
+            if (abs > max) max = abs;
+          }
+        }
+      }
+      return max;
+    }
+
+    return 0;
   }
 
   /**
    * Normaliza valores numéricos (min-max scaling)
    * ULTRA OPTIMIZADA: 2.5x más rápida
    */
+  /**
+   * Normaliza valores a rango [0,1]
+   * ULTRA-OPTIMIZADO: Vectorizado para columnas numéricas
+   */
   normalize(fields?: string[]): Toon {
-    const fieldsToNormalize = fields || Object.keys(this.dataset.schema);
-    const rowCount = this.dataset.rows.length;
-    const newRows: Record<string, unknown>[] = new Array(rowCount);
-    const fieldSet = new Set(fieldsToNormalize);
+    const fieldsToNormalize = fields ? new Set(fields) : null;
+    const newColumns: ToonColumnMap = new Map();
 
-    // Pre-calcular min/max una sola vez
-    const minMax = new Map<string, { min: number; max: number }>();
-
-    for (const field of fieldsToNormalize) {
-      let min = Infinity;
-      let max = -Infinity;
-
-      for (let i = 0; i < rowCount; i++) {
-        const val = Number(this.dataset.rows[i][field]);
-        if (!isNaN(val)) {
-          if (val < min) min = val;
-          if (val > max) max = val;
-        }
-      }
-
-      minMax.set(field, { min, max });
-    }
-
-    // Normalizar (sin spread operator)
-    for (let i = 0; i < rowCount; i++) {
-      const row = this.dataset.rows[i];
-      const newRow: Record<string, unknown> = {};
-
-      const keys = Object.keys(row);
-      for (let k = 0; k < keys.length; k++) {
-        const key = keys[k];
-        const value = row[key];
-
-        if (fieldSet.has(key)) {
-          const val = Number(value);
-          if (!isNaN(val)) {
-            const { min, max } = minMax.get(key)!;
-            const range = max - min;
-            newRow[key] = range === 0 ? 0 : (val - min) / range;
-          } else {
-            newRow[key] = value;
-          }
+    for (const [field, col] of this._columns.entries()) {
+      // Skip if not in requested fields (if fields are specified)
+      if (fieldsToNormalize && !fieldsToNormalize.has(field)) {
+        if (col instanceof Float64Array) {
+             newColumns.set(field, new Float64Array(col));
         } else {
-          newRow[key] = value;
+             newColumns.set(field, [...(col as unknown[])]);
         }
+        continue;
       }
 
-      newRows[i] = newRow;
+      // Process column
+      if (col instanceof Float64Array) {
+        // 1. Calculate Min/Max
+        let min = Infinity;
+        let max = -Infinity;
+        for(let i=0; i<this._rowCount; i++) {
+            const val = col[i];
+            if(!isNaN(val)) {
+                if(val < min) min = val;
+                if(val > max) max = val;
+            }
+        }
+        
+        // 2. Apply normalization
+        // If no numbers found (min is Infinity), return copy (all NaNs)
+        if (min === Infinity) {
+             newColumns.set(field, new Float64Array(col));
+             continue;
+        }
+
+        const range = max - min;
+        const newCol = new Float64Array(this._rowCount);
+        
+        if (range === 0) {
+             // All values equal, normalize to 0 (or keep NaN)
+             for(let i=0; i<this._rowCount; i++) {
+                 newCol[i] = isNaN(col[i]) ? NaN : 0;
+             }
+        } else {
+            for(let i=0; i<this._rowCount; i++) {
+                const val = col[i];
+                if(!isNaN(val)) {
+                    newCol[i] = (val - min) / range;
+                } else {
+                    newCol[i] = NaN;
+                }
+            }
+        }
+        newColumns.set(field, newCol);
+
+      } else {
+        // Slow path for mixed arrays: Preserve non-numeric values
+        const srcArr = col as unknown[];
+        let min = Infinity;
+        let max = -Infinity;
+        
+        // Pass 1: Find min/max
+        for(let i=0; i<this._rowCount; i++) {
+            const val = Number(srcArr[i]);
+            if(!isNaN(val)) {
+                if(val < min) min = val;
+                if(val > max) max = val;
+            }
+        }
+
+        if (min === Infinity) {
+            newColumns.set(field, [...srcArr]);
+            continue;
+        }
+
+        const range = max - min;
+        const newCol = new Array(this._rowCount);
+
+        // Pass 2: Normalize
+        for(let i=0; i<this._rowCount; i++) {
+            const original = srcArr[i];
+            const val = Number(original);
+            if (!isNaN(val)) {
+                newCol[i] = range === 0 ? 0 : (val - min) / range;
+            } else {
+                newCol[i] = original;
+            }
+        }
+        newColumns.set(field, newCol);
+      }
     }
 
-    return new Toon({
-      ...this.dataset,
-      rows: newRows,
-    });
+    return Toon.createFromColumns(this._name, this._schema, newColumns, this._rowCount);
   }
 
   /**
    * Estandariza valores (z-score normalization)
+   * ULTRA-OPTIMIZADO: Vectorizado
    */
   standardize(fields?: string[]): Toon {
-    const fieldsToStandardize = fields || Object.keys(this.dataset.schema);
-    const stats: Record<string, { mean: number; stdDev: number }> = {};
+    const fieldsToStandardize = fields ? new Set(fields) : null;
+    const newColumns: ToonColumnMap = new Map();
 
-    // Calcular mean y stdDev para cada campo
-    fieldsToStandardize.forEach(field => {
-      const fieldStats = this.stats(field);
-      const mean = fieldStats.avg;
-      const values = this.pluck(field).map(v => Number(v)).filter(v => !isNaN(v));
-      const variance = values.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / values.length;
-      const stdDev = Math.sqrt(variance);
-      stats[field] = { mean, stdDev };
-    });
-
-    const newRows = this.dataset.rows.map(row => {
-      const newRow = { ...row };
-      fieldsToStandardize.forEach(field => {
-        const value = Number(row[field]);
-        if (!isNaN(value)) {
-          const { mean, stdDev } = stats[field];
-          newRow[field] = stdDev === 0 ? 0 : (value - mean) / stdDev;
+    for (const [field, col] of this._columns.entries()) {
+      // Skip if not in requested fields (if fields are specified)
+      if (fieldsToStandardize && !fieldsToStandardize.has(field)) {
+        if (col instanceof Float64Array) {
+             newColumns.set(field, new Float64Array(col));
+        } else {
+             newColumns.set(field, [...(col as unknown[])]);
         }
-      });
-      return newRow;
-    });
+        continue;
+      }
 
-    return new Toon({
-      ...this.dataset,
-      rows: newRows,
-    });
+      if (col instanceof Float64Array) {
+        // 1. Calculate Mean
+        let sum = 0;
+        let count = 0;
+        for(let i=0; i<this._rowCount; i++) {
+            const val = col[i];
+            if(!isNaN(val)) {
+                sum += val;
+                count++;
+            }
+        }
+
+        if (count === 0) {
+             newColumns.set(field, new Float64Array(col));
+             continue;
+        }
+        const mean = sum / count;
+
+        // 2. Calculate Variance
+        let sumSqDiff = 0;
+        for(let i=0; i<this._rowCount; i++) {
+            const val = col[i];
+            if(!isNaN(val)) {
+                const diff = val - mean;
+                sumSqDiff += diff * diff;
+            }
+        }
+        const variance = sumSqDiff / count; 
+        const stdDev = Math.sqrt(variance);
+
+        // 3. Apply Standardization
+        const newCol = new Float64Array(this._rowCount);
+        if (stdDev === 0) {
+             for(let i=0; i<this._rowCount; i++) {
+                 newCol[i] = isNaN(col[i]) ? NaN : 0;
+             }
+        } else {
+            for(let i=0; i<this._rowCount; i++) {
+                const val = col[i];
+                if(!isNaN(val)) {
+                    newCol[i] = (val - mean) / stdDev;
+                } else {
+                    newCol[i] = NaN;
+                }
+            }
+        }
+        newColumns.set(field, newCol);
+
+      } else {
+        // Slow path
+        const srcArr = col as unknown[];
+        let sum = 0;
+        let count = 0;
+        
+        // Pass 1: Mean
+        for(let i=0; i<this._rowCount; i++) {
+            const val = Number(srcArr[i]);
+            if(!isNaN(val)) {
+                sum += val;
+                count++;
+            }
+        }
+
+        if (count === 0) {
+            newColumns.set(field, [...srcArr]);
+            continue;
+        }
+        const mean = sum / count;
+
+        // Pass 2: Variance
+        let sumSqDiff = 0;
+        for(let i=0; i<this._rowCount; i++) {
+            const val = Number(srcArr[i]);
+            if(!isNaN(val)) {
+                const diff = val - mean;
+                sumSqDiff += diff * diff;
+            }
+        }
+        const stdDev = Math.sqrt(sumSqDiff / count);
+
+        // Pass 3: Standardize
+        const newCol = new Array(this._rowCount);
+        for(let i=0; i<this._rowCount; i++) {
+            const original = srcArr[i];
+            const val = Number(original);
+            if (!isNaN(val)) {
+                newCol[i] = stdDev === 0 ? 0 : (val - mean) / stdDev;
+            } else {
+                newCol[i] = original;
+            }
+        }
+        newColumns.set(field, newCol);
+      }
+    }
+
+    return Toon.createFromColumns(this._name, this._schema, newColumns, this._rowCount);
   }
 
   /**
    * Calcula la covarianza entre dos campos
+   * OPTIMIZADO: Vectorizado y manejo correcto de pares NaN
    */
   covariance(field1: string, field2: string): number {
-    const values1 = this.pluck(field1).map(v => Number(v)).filter(v => !isNaN(v));
-    const values2 = this.pluck(field2).map(v => Number(v)).filter(v => !isNaN(v));
+    const col1 = this._columns.get(field1);
+    const col2 = this._columns.get(field2);
+    
+    if (!col1 || !col2 || this._rowCount === 0) return 0;
 
-    if (values1.length !== values2.length || values1.length === 0) return 0;
+    let sum1 = 0;
+    let sum2 = 0;
+    let count = 0;
 
-    const mean1 = values1.reduce((a, b) => a + b, 0) / values1.length;
-    const mean2 = values2.reduce((a, b) => a + b, 0) / values2.length;
+    // Pass 1: Calculate Means (only for valid pairs)
+    if (col1 instanceof Float64Array && col2 instanceof Float64Array) {
+      for(let i=0; i<this._rowCount; i++) {
+        const v1 = col1[i];
+        const v2 = col2[i];
+        if (!isNaN(v1) && !isNaN(v2)) {
+          sum1 += v1;
+          sum2 += v2;
+          count++;
+        }
+      }
+    } else {
+      const arr1 = col1 as unknown[];
+      const arr2 = col2 as unknown[];
+      for(let i=0; i<this._rowCount; i++) {
+        const v1 = Number(arr1[i]);
+        const v2 = Number(arr2[i]);
+        if (!isNaN(v1) && !isNaN(v2)) {
+          sum1 += v1;
+          sum2 += v2;
+          count++;
+        }
+      }
+    }
 
-    return values1.reduce((sum, v1, i) => {
-      return sum + (v1 - mean1) * (values2[i] - mean2);
-    }, 0) / values1.length;
+    if (count === 0) return 0;
+    const mean1 = sum1 / count;
+    const mean2 = sum2 / count;
+
+    // Pass 2: Calculate Covariance
+    let sumCov = 0;
+    if (col1 instanceof Float64Array && col2 instanceof Float64Array) {
+      for(let i=0; i<this._rowCount; i++) {
+        const v1 = col1[i];
+        const v2 = col2[i];
+        if (!isNaN(v1) && !isNaN(v2)) {
+          sumCov += (v1 - mean1) * (v2 - mean2);
+        }
+      }
+    } else {
+      const arr1 = col1 as unknown[];
+      const arr2 = col2 as unknown[];
+      for(let i=0; i<this._rowCount; i++) {
+        const v1 = Number(arr1[i]);
+        const v2 = Number(arr2[i]);
+        if (!isNaN(v1) && !isNaN(v2)) {
+          sumCov += (v1 - mean1) * (v2 - mean2);
+        }
+      }
+    }
+
+    return sumCov / count;
   }
 
   /**
@@ -1208,9 +1607,9 @@ export class Toon {
     const newFieldName = `${field}_lag_${periods}`;
     const values = this.pluck(field);
 
-    const newRows = this.dataset.rows.map((row, idx) => {
+    const newRows = this.rows.map((row, idx) => {
       const lagIdx = idx - periods;
-      const lagValue = lagIdx >= 0 ? values[lagIdx] : null;
+      const lagValue = lagIdx >= 0 ? values[lagIdx] : NaN;
 
       return {
         ...row,
@@ -1219,8 +1618,8 @@ export class Toon {
     });
 
     return new Toon({
-      ...this.dataset,
-      schema: { ...this.dataset.schema, [newFieldName]: 'number' },
+      name: this._name,
+      schema: { ...this._schema, [newFieldName]: 'number' },
       rows: newRows,
     });
   }
@@ -1232,9 +1631,9 @@ export class Toon {
     const newFieldName = `${field}_lead_${periods}`;
     const values = this.pluck(field);
 
-    const newRows = this.dataset.rows.map((row, idx) => {
+    const newRows = this.rows.map((row, idx) => {
       const leadIdx = idx + periods;
-      const leadValue = leadIdx < values.length ? values[leadIdx] : null;
+      const leadValue = leadIdx < values.length ? values[leadIdx] : NaN;
 
       return {
         ...row,
@@ -1243,88 +1642,132 @@ export class Toon {
     });
 
     return new Toon({
-      ...this.dataset,
-      schema: { ...this.dataset.schema, [newFieldName]: 'number' },
+      name: this._name,
+      schema: { ...this._schema, [newFieldName]: 'number' },
       rows: newRows,
     });
   }
 
   /**
    * Diferencia entre valores consecutivos
+   * OPTIMIZADO: Vectorizado
    */
   diff(field: string, periods: number = 1): Toon {
     const newFieldName = `${field}_diff_${periods}`;
-    const values = this.pluck(field).map(v => Number(v));
+    const col = this._columns.get(field);
+    
+    // Copy existing columns
+    const newColumns = new Map(this._columns);
+    const newCol = new Float64Array(this._rowCount);
 
-    const newRows = this.dataset.rows.map((row, idx) => {
-      const prevIdx = idx - periods;
-      const diff = prevIdx >= 0 && !isNaN(values[idx]) && !isNaN(values[prevIdx])
-        ? values[idx] - values[prevIdx]
-        : null;
+    if (col instanceof Float64Array) {
+      for(let i=0; i<this._rowCount; i++) {
+        const prevIdx = i - periods;
+        if (prevIdx >= 0) {
+          newCol[i] = col[i] - col[prevIdx];
+        } else {
+          newCol[i] = NaN;
+        }
+      }
+    } else {
+      const arr = col as unknown[];
+      for(let i=0; i<this._rowCount; i++) {
+        const prevIdx = i - periods;
+        if (prevIdx >= 0) {
+          const val = Number(arr[i]);
+          const prev = Number(arr[prevIdx]);
+          newCol[i] = (!isNaN(val) && !isNaN(prev)) ? val - prev : NaN;
+        } else {
+          newCol[i] = NaN;
+        }
+      }
+    }
 
-      return {
-        ...row,
-        [newFieldName]: diff,
-      };
-    });
-
-    return new Toon({
-      ...this.dataset,
-      schema: { ...this.dataset.schema, [newFieldName]: 'number' },
-      rows: newRows,
-    });
+    newColumns.set(newFieldName, newCol);
+    return Toon.createFromColumns(this._name, { ...this._schema, [newFieldName]: 'number' }, newColumns, this._rowCount);
   }
 
   /**
    * Cambio porcentual entre valores consecutivos
+   * OPTIMIZADO: Vectorizado
    */
   pctChange(field: string, periods: number = 1): Toon {
     const newFieldName = `${field}_pct_change_${periods}`;
-    const values = this.pluck(field).map(v => Number(v));
+    const col = this._columns.get(field);
+    
+    const newColumns = new Map(this._columns);
+    const newCol = new Float64Array(this._rowCount);
 
-    const newRows = this.dataset.rows.map((row, idx) => {
-      const prevIdx = idx - periods;
-      const pctChange = prevIdx >= 0 && !isNaN(values[idx]) && !isNaN(values[prevIdx]) && values[prevIdx] !== 0
-        ? ((values[idx] - values[prevIdx]) / values[prevIdx]) * 100
-        : null;
+    if (col instanceof Float64Array) {
+      for(let i=0; i<this._rowCount; i++) {
+        const prevIdx = i - periods;
+        if (prevIdx >= 0) {
+          const val = col[i];
+          const prev = col[prevIdx];
+          if (prev !== 0) {
+             newCol[i] = ((val - prev) / prev) * 100;
+          } else {
+             newCol[i] = NaN;
+          }
+        } else {
+          newCol[i] = NaN;
+        }
+      }
+    } else {
+      const arr = col as unknown[];
+      for(let i=0; i<this._rowCount; i++) {
+        const prevIdx = i - periods;
+        if (prevIdx >= 0) {
+          const val = Number(arr[i]);
+          const prev = Number(arr[prevIdx]);
+          if (!isNaN(val) && !isNaN(prev) && prev !== 0) {
+            newCol[i] = ((val - prev) / prev) * 100;
+          } else {
+            newCol[i] = NaN;
+          }
+        } else {
+          newCol[i] = NaN;
+        }
+      }
+    }
 
-      return {
-        ...row,
-        [newFieldName]: pctChange,
-      };
-    });
-
-    return new Toon({
-      ...this.dataset,
-      schema: { ...this.dataset.schema, [newFieldName]: 'number' },
-      rows: newRows,
-    });
+    newColumns.set(newFieldName, newCol);
+    return Toon.createFromColumns(this._name, { ...this._schema, [newFieldName]: 'number' }, newColumns, this._rowCount);
   }
 
   /**
    * Acumulado (cumsum)
+   * OPTIMIZADO: Vectorizado
    */
   cumsum(field: string): Toon {
     const newFieldName = `${field}_cumsum`;
-    const values = this.pluck(field).map(v => Number(v));
+    const col = this._columns.get(field);
+    
+    const newColumns = new Map(this._columns);
+    const newCol = new Float64Array(this._rowCount);
     let sum = 0;
 
-    const newRows = this.dataset.rows.map((row, idx) => {
-      if (!isNaN(values[idx])) {
-        sum += values[idx];
+    if (col instanceof Float64Array) {
+      for(let i=0; i<this._rowCount; i++) {
+        const val = col[i];
+        if (!isNaN(val)) {
+          sum += val;
+        }
+        newCol[i] = sum;
       }
+    } else {
+      const arr = col as unknown[];
+      for(let i=0; i<this._rowCount; i++) {
+        const val = Number(arr[i]);
+        if (!isNaN(val)) {
+          sum += val;
+        }
+        newCol[i] = sum;
+      }
+    }
 
-      return {
-        ...row,
-        [newFieldName]: sum,
-      };
-    });
-
-    return new Toon({
-      ...this.dataset,
-      schema: { ...this.dataset.schema, [newFieldName]: 'number' },
-      rows: newRows,
-    });
+    newColumns.set(newFieldName, newCol);
+    return Toon.createFromColumns(this._name, { ...this._schema, [newFieldName]: 'number' }, newColumns, this._rowCount);
   }
 
   /**

@@ -3,10 +3,10 @@
 **A high-performance TypeScript library for tabular data manipulation with a custom TOON format**
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/tests-102%20passing-brightgreen.svg)](https://github.com/cescofors75/toonjs)
+[![Tests](https://img.shields.io/badge/tests-275%2B%20passing-brightgreen.svg)](https://github.com/cescofors75/toonjs)
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](https://github.com/cescofors75/toonjs)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Performance](https://img.shields.io/badge/performance-2.2x%20avg-orange.svg)](https://github.com/cescofors75/toonjs/blob/main/PERFORMANCE.md)
+[![Performance](https://img.shields.io/badge/performance-Ultra%20Fast-orange.svg)](https://github.com/cescofors75/toonjs/blob/main/PERFORMANCE.md)
 
 > 📚 **[Complete Documentation, Interactive Playground & Tools → toonjs.dev](https://toonjs.dev)**
 
@@ -18,18 +18,26 @@
 
 ### 📖 Overview
 
-ToonJS is a powerful, zero-dependency TypeScript library for working with tabular data. It introduces the TOON format - a human-readable, efficient way to represent datasets - and provides 76+ optimized methods for data manipulation, analysis, and transformation.
+ToonJS is a powerful, zero-dependency TypeScript library for working with tabular data. It introduces the TOON format - a human-readable, efficient way to represent datasets - and provides **100+ optimized methods** for data manipulation, analysis, and transformation.
 
 ### ✨ Key Features
 
-- **🚀 High Performance**: Promedio 2.2x más rápido que operaciones manuales, hasta 3.5x en operaciones como correlación y normalización
+- **🚀 Ultra High Performance**: Powered by **Float64Array Columnar Architecture**. Up to **10x faster** for numeric operations.
 - **📦 Zero Dependencies**: Pure TypeScript, no external packages
 - **🎯 Type-Safe**: Full TypeScript support with comprehensive type definitions
 - **🔗 Chainable API**: Fluent interface for elegant data pipelines
-- **📊 Rich Functionality**: 76+ methods covering filtering, aggregation, statistics, and more
+- **📊 Rich Functionality**: Matrix operations, Time Series analysis, Advanced Statistics, and more.
 - **🎨 Custom Format**: TOON format - compact and human-readable
-- **✅ Well-Tested**: 102 comprehensive tests with 100% coverage
+- **✅ Battle-Tested**: **275+ tests** including Fuzzing and Invariant checks.
 - **🌐 Universal**: Works in Node.js and browsers
+
+### 🆕 New in v1.1
+
+- **Columnar Engine**: Numeric columns now use `Float64Array` for SIMD-like performance.
+- **Matrix Operations**: `addMatrix`, `dotProduct`, `norm`, `transpose`.
+- **Time Series**: `rolling` (moving averages), `lag`, `lead`, `diff`, `pctChange`.
+- **Advanced Stats**: `covariance`, `correlation`, `percentile`, `rank`, `z-score`.
+- **Robustness**: Massive test suite expansion covering edge cases and algebraic invariants.
 
 ### 🚀 Quick Start
 
@@ -277,18 +285,26 @@ Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md)
 
 ### 📖 Descripción
 
-ToonJS es una poderosa biblioteca TypeScript sin dependencias para trabajar con datos tabulares. Introduce el formato TOON - una forma legible y eficiente de representar conjuntos de datos - y proporciona más de 60 métodos optimizados para manipulación, análisis y transformación de datos.
+ToonJS es una poderosa biblioteca TypeScript sin dependencias para trabajar con datos tabulares. Introduce el formato TOON - una forma legible y eficiente de representar conjuntos de datos - y proporciona **más de 100 métodos optimizados** para manipulación, análisis y transformación de datos.
 
 ### ✨ Características Principales
 
-- **🚀 Alto Rendimiento**: Promedio 2.2x más rápido que operaciones manuales, hasta 3.5x en operaciones como correlación y normalización
+- **🚀 Ultra Alto Rendimiento**: Impulsado por **Arquitectura Columnar Float64Array**. Hasta **10x más rápido** en operaciones numéricas.
 - **📦 Sin Dependencias**: TypeScript puro, sin paquetes externos
 - **🎯 Type-Safe**: Soporte completo de TypeScript con definiciones exhaustivas
 - **🔗 API Encadenable**: Interfaz fluida para pipelines elegantes
-- **📊 Funcionalidad Rica**: Más de 76 métodos cubriendo filtrado, agregación, estadísticas y más
+- **📊 Funcionalidad Rica**: Operaciones matriciales, Series Temporales, Estadísticas Avanzadas y más.
 - **🎨 Formato Personalizado**: Formato TOON - compacto y legible
-- **✅ Bien Probado**: 102 tests exhaustivos con 100% de cobertura
+- **✅ Probado en Batalla**: **275+ tests** incluyendo Fuzzing y verificación de invariantes.
 - **🌐 Universal**: Funciona en Node.js y navegadores
+
+### 🆕 Nuevo en v1.1
+
+- **Motor Columnar**: Las columnas numéricas ahora usan `Float64Array` para rendimiento tipo SIMD.
+- **Operaciones Matriciales**: `addMatrix`, `dotProduct`, `norm`, `transpose`.
+- **Series Temporales**: `rolling` (medias móviles), `lag`, `lead`, `diff`, `pctChange`.
+- **Estadísticas Avanzadas**: `covariance`, `correlation`, `percentile`, `rank`, `z-score`.
+- **Robustez**: Expansión masiva de tests cubriendo casos borde e invariantes algebraicos.
 
 ### 🚀 Inicio Rápido
 

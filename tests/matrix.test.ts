@@ -147,25 +147,25 @@ describe('Operaciones Matriciales - Series Temporales', () => {
 
   test('lag() crea valores rezagados', () => {
     const lagged = toon.lag('val', 1);
-    expect(lagged.at(0)?.val_lag_1).toBeNull();
+    expect(lagged.at(0)?.val_lag_1).toBeNaN();
     expect(lagged.at(1)?.val_lag_1).toBe(10);
   });
 
   test('lead() crea valores adelantados', () => {
     const leaded = toon.lead('val', 1);
     expect(leaded.at(0)?.val_lead_1).toBe(20);
-    expect(leaded.at(4)?.val_lead_1).toBeNull();
+    expect(leaded.at(4)?.val_lead_1).toBeNaN();
   });
 
   test('diff() calcula diferencias', () => {
     const diffed = toon.diff('val', 1);
-    expect(diffed.at(0)?.val_diff_1).toBeNull();
+    expect(diffed.at(0)?.val_diff_1).toBeNaN();
     expect(diffed.at(1)?.val_diff_1).toBe(10); // 20-10
   });
 
   test('pctChange() calcula cambios porcentuales', () => {
     const pctChanged = toon.pctChange('val', 1);
-    expect(pctChanged.at(0)?.val_pct_change_1).toBeNull();
+    expect(pctChanged.at(0)?.val_pct_change_1).toBeNaN();
     expect(pctChanged.at(1)?.val_pct_change_1).toBe(100); // (20-10)/10 * 100
   });
 

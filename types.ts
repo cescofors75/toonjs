@@ -12,6 +12,8 @@ export interface ToonDataset {
   rows: Record<string, unknown>[];
 }
 
+export type ToonColumnMap = Map<string, Float64Array | unknown[]>;
+
 export type ToonPredicateFn<T = Record<string, unknown>> = (
   row: T,
   index: number
