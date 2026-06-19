@@ -31,6 +31,21 @@ ToonJS is a powerful TypeScript library for working with tabular data. It introd
 - **✅ Battle-Tested**: **288 tests** including Fuzzing and Invariant checks.
 - **🌐 Universal**: Works in Node.js and browsers
 
+### ⚙️ Optional Rust → WASM Core (experimental)
+
+A columnar engine written in Rust and compiled to WebAssembly, where data lives
+in WASM linear memory and chained operations never cross the JS↔WASM boundary.
+~1.8–1.9x faster than the JS engine on parse + pipelines. See
+[WASM-CORE.md](WASM-CORE.md).
+
+```ts
+import { initToonWasm, ToonWasm } from '@cescofors/toonjs/wasm';
+await initToonWasm();
+const t = ToonWasm.from(`d[3]{id,price}:\n  1,9.9\n  2,19.9\n  3,29.9`);
+t.filterRange('price', 10, 30).stats('price');
+t.free();
+```
+
 ### 🆕 New in v1.1
 
 - **Columnar Engine**: Numeric columns now use `Float64Array` for SIMD-like performance.

@@ -107,15 +107,14 @@ Migrados a acceso columnar directo (sin reconstruir todas las filas):
 
 ---
 
-## 📋 Pendiente (requiere decisión de diseño)
+## ✅ Resuelto (tercera iteración)
 
-### E. 🟡 `assembly/` (WASM) nunca se enlaza
-`multiplyScalar`/`transpose` en `assembly/index.ts` existen pero `toon.ts` usa
-implementaciones JS puras, y el build de AssemblyScript no se genera ni se
-incluye en `files`. Integrarlo de verdad (carga del `.wasm`, gestión de memoria,
-fallback) es una **funcionalidad nueva**, no una corrección de auditoría, por lo
-que se deja documentado para decisión: o se cablea, o se elimina junto a la
-dependencia `@assemblyscript/loader`.
+### E. 🟡 `assembly/` (WASM) nunca se enlazaba → **RESUELTO (migración a Rust)**
+El `assembly/` de AssemblyScript (código muerto) se ha **eliminado**, junto con
+la dependencia `@assemblyscript/loader` y la devDep `assemblyscript`. En su lugar
+se ha construido un **core columnar real en Rust → WASM** donde la data vive en
+memoria lineal y las operaciones encadenadas no cruzan el límite JS↔WASM.
+Ver `WASM-CORE.md`. Benchmark honesto: ~1.8–1.9x sobre el motor JS (no 10x).
 
 ---
 
