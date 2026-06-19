@@ -413,3 +413,45 @@ pub extern "C" fn tj_group_agg(handle: u32, group_col: u32, value_col: u32, op: 
         Some(ops::group_agg(df, g, v, op))
     })
 }
+
+/// Z-score de todas las columnas numéricas. Nuevo handle.
+#[no_mangle]
+pub extern "C" fn tj_standardize(handle: u32) -> u32 {
+    op_new(handle, |df| Some(ops::standardize(df)))
+}
+
+/// Ventana deslizante (op: 0=sum,1=avg,2=min,3=max). Nuevo handle.
+#[no_mangle]
+pub extern "C" fn tj_rolling(handle: u32, col: u32, window: u32, op: u32) -> u32 {
+    op_new(handle, |df| {
+        let i = df.col_index(col)?;
+        Some(ops::rolling(df, i, window as usize, op))
+    })
+}
+
+/// Cambio porcentual con `periods` atrás. Nuevo handle.
+#[no_mangle]
+pub extern "C" fn tj_pct_change(handle: u32, col: u32, periods: u32) -> u32 {
+    op_new(handle, |df| {
+        let i = df.col_index(col)?;
+        Some(ops::pct_change(df, i, periods as usize))
+    })
+}
+
+/// Ranking descendente (method: 0=dense,1=min,2=max). Nuevo handle.
+#[no_mangle]
+pub extern "C" fn tj_rank(handle: u32, col: u32, method: u32) -> u32 {
+    op_new(handle, |df| {
+        let i = df.col_index(col)?;
+        Some(ops::rank(df, i, method))
+    })
+}
+
+/// Percentil de cada valor. Nuevo handle.
+#[no_mangle]
+pub extern "C" fn tj_percentile(handle: u32, col: u32) -> u32 {
+    op_new(handle, |df| {
+        let i = df.col_index(col)?;
+        Some(ops::percentile(df, i))
+    })
+}

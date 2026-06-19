@@ -2,10 +2,10 @@
  * Clase principal Toon para manipular datasets
  */
 
-import { ToonDataset, ToonSchema, ToonPredicateFn, ToonMapFn, ToonCompareFn, ToonReduceFn, ToonColumnMap } from './types';
+import { ToonDataset, ToonSchema, ToonPredicateFn, ToonMapFn, ToonCompareFn, ToonReduceFn, ToonColumnMap, ToonLike } from './types';
 import { escapeField } from './csv-util';
 
-export class Toon {
+export class Toon implements ToonLike {
   private _name: string;
   private _schema: ToonSchema;
   private _columns: ToonColumnMap;

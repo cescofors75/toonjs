@@ -13,6 +13,14 @@
  */
 
 import { TOON_CORE_WASM_BASE64 } from './toon-core.wasm';
+import type {
+  ToonLike,
+  ToonSchema,
+  ToonStatsResult,
+  ToonPredicateFn,
+} from '../types';
+import { Toon } from '../toon';
+import { ToonFactory } from '../factory';
 
 interface CoreExports {
   memory: WebAssembly.Memory;
@@ -37,6 +45,11 @@ interface CoreExports {
   tj_cumsum(handle: number, col: number): number;
   tj_diff(handle: number, col: number, periods: number): number;
   tj_group_agg(handle: number, groupCol: number, valueCol: number, op: number): number;
+  tj_standardize(handle: number): number;
+  tj_rolling(handle: number, col: number, window: number, op: number): number;
+  tj_pct_change(handle: number, col: number, periods: number): number;
+  tj_rank(handle: number, col: number, method: number): number;
+  tj_percentile(handle: number, col: number): number;
 }
 
 let core: CoreExports | null = null;
@@ -103,15 +116,9 @@ const STAT = { min: 0, max: 1, sum: 2, avg: 3, count: 4 } as const;
 export type AggOp = 'sum' | 'avg' | 'min' | 'max' | 'count';
 const AGG_OP: Record<AggOp, number> = { sum: 0, avg: 1, min: 2, max: 3, count: 4 };
 
-export interface ToonStats {
-  min: number;
-  max: number;
-  avg: number;
-  sum: number;
-  count: number;
-}
+export type ToonStats = ToonStatsResult;
 
-export class ToonWasm {
+export class ToonWasm implements ToonLike {
   private handle: number;
   private released = false;
   private _fields: string[] | null = null;
@@ -173,7 +180,7 @@ export class ToonWasm {
     return code === 0 ? 'number' : code === 1 ? 'string' : code === 2 ? 'boolean' : 'unknown';
   }
 
-  stats(col: number | string): ToonStats {
+  stats(col: number | string): ToonStatsResult {
     this.assertLive();
     const e = ex();
     const c = this.colIndex(col);
@@ -192,14 +199,27 @@ export class ToonWasm {
     return new ToonWasm(h);
   }
 
+  /**
+   * Normaliza (min-max) las columnas numéricas. Si se pasan `fields` que no
+   * cubren todas las columnas, se delega al motor JS (el core normaliza todas).
+   */
+  normalize(fields?: string[]): ToonLike {
+    this.assertLive();
+    if (fields && !this.coversAllNumeric(fields)) return this.toJS().normalize(fields);
+    return new ToonWasm(ex().tj_normalize(this.handle));
+  }
+
+  /** Z-score de las columnas numéricas. */
+  standardize(fields?: string[]): ToonLike {
+    this.assertLive();
+    if (fields && !this.coversAllNumeric(fields)) return this.toJS().standardize(fields);
+    return new ToonWasm(ex().tj_standardize(this.handle));
+  }
+
+  /** Multiplica por un escalar las columnas numéricas. */
   multiplyScalar(scalar: number): ToonWasm {
     this.assertLive();
     return new ToonWasm(ex().tj_multiply_scalar(this.handle, scalar));
-  }
-
-  normalize(): ToonWasm {
-    this.assertLive();
-    return new ToonWasm(ex().tj_normalize(this.handle));
   }
 
   /** Copia una columna numérica a un Float64Array de JS. */
@@ -208,10 +228,15 @@ export class ToonWasm {
     return readF64(ex().tj_column_f64(this.handle, this.colIndex(col)));
   }
 
-  /** Ordena por una columna (asc por defecto). Devuelve un nuevo dataset. */
-  sortBy(col: number | string, order: 'asc' | 'desc' = 'asc'): ToonWasm {
+  /**
+   * Ordena por uno o más campos. Con un único campo se ejecuta en WASM; con
+   * varios se delega al motor JS (orden multi-clave).
+   */
+  sortBy(...fields: Array<{ field: string; order?: 'asc' | 'desc' }>): ToonLike {
     this.assertLive();
-    return new ToonWasm(ex().tj_sort_by(this.handle, this.colIndex(col), order === 'desc' ? 1 : 0));
+    if (fields.length !== 1) return this.toJS().sortBy(...fields);
+    const { field, order = 'asc' } = fields[0];
+    return new ToonWasm(ex().tj_sort_by(this.handle, this.colIndex(field), order === 'desc' ? 1 : 0));
   }
 
   /** Correlación de Pearson entre dos columnas. */
@@ -220,16 +245,17 @@ export class ToonWasm {
     return ex().tj_correlation(this.handle, this.colIndex(c1), this.colIndex(c2));
   }
 
-  /** Matriz de correlación de todas las columnas, indexada por nombre de campo. */
-  correlationMatrix(): Record<string, Record<string, number>> {
+  /** Matriz de correlación. Sin `fields`, todas las columnas (en WASM). */
+  correlationMatrix(fields?: string[]): Record<string, Record<string, number>> {
     this.assertLive();
-    const fields = this.fields();
-    const n = fields.length;
+    if (fields) return this.toJS().correlationMatrix(fields);
+    const all = this.fields();
+    const n = all.length;
     const flat = readF64(ex().tj_correlation_matrix(this.handle));
     const out: Record<string, Record<string, number>> = {};
     for (let i = 0; i < n; i++) {
-      out[fields[i]] = {};
-      for (let j = 0; j < n; j++) out[fields[i]][fields[j]] = flat[i * n + j];
+      out[all[i]] = {};
+      for (let j = 0; j < n; j++) out[all[i]][all[j]] = flat[i * n + j];
     }
     return out;
   }
@@ -246,6 +272,32 @@ export class ToonWasm {
     return new ToonWasm(ex().tj_diff(this.handle, this.colIndex(col), periods));
   }
 
+  /** Cambio porcentual: añade `${field}_pct_change_${periods}`. */
+  pctChange(col: number | string, periods = 1): ToonWasm {
+    this.assertLive();
+    return new ToonWasm(ex().tj_pct_change(this.handle, this.colIndex(col), periods));
+  }
+
+  /** Media/agg deslizante: añade `${field}_rolling_${op}`. */
+  rolling(col: number | string, window: number, op: 'sum' | 'avg' | 'min' | 'max' = 'avg'): ToonWasm {
+    this.assertLive();
+    const code = { sum: 0, avg: 1, min: 2, max: 3 }[op];
+    return new ToonWasm(ex().tj_rolling(this.handle, this.colIndex(col), window, code));
+  }
+
+  /** Ranking descendente: añade `${field}_rank`. */
+  rank(col: number | string, method: 'dense' | 'min' | 'max' = 'dense'): ToonWasm {
+    this.assertLive();
+    const code = { dense: 0, min: 1, max: 2 }[method];
+    return new ToonWasm(ex().tj_rank(this.handle, this.colIndex(col), code));
+  }
+
+  /** Percentil de cada valor: añade `${field}_percentile`. */
+  percentile(col: number | string): ToonWasm {
+    this.assertLive();
+    return new ToonWasm(ex().tj_percentile(this.handle, this.colIndex(col)));
+  }
+
   /** Agrupa por `groupCol` y agrega `valueCol`. Columnas resultado: [grupo, value]. */
   groupAggregate(groupCol: number | string, valueCol: number | string, op: AggOp): ToonWasm {
     this.assertLive();
@@ -257,6 +309,95 @@ export class ToonWasm {
   toToon(): string {
     this.assertLive();
     return readString(ex().tj_to_toon(this.handle));
+  }
+
+  // ----- Esquema / metadatos -----
+
+  /** Esquema { campo: tipo } reconstruido desde el core. */
+  schema(): ToonSchema {
+    this.assertLive();
+    const out: ToonSchema = {};
+    const fs = this.fields();
+    for (let i = 0; i < fs.length; i++) {
+      const t = this.colType(i);
+      out[fs[i]] = t === 'unknown' ? 'string' : t;
+    }
+    return out;
+  }
+
+  isEmpty(): boolean {
+    return this.count() === 0;
+  }
+
+  /** ¿`fields` cubre exactamente todas las columnas numéricas? */
+  private coversAllNumeric(fields: string[]): boolean {
+    const set = new Set(fields);
+    const all = this.fields();
+    for (let i = 0; i < all.length; i++) {
+      if (this.colType(i) === 'number' && !set.has(all[i])) return false;
+    }
+    return true;
+  }
+
+  // ----- Puente al motor JS (operaciones que no viven en WASM) -----
+
+  /**
+   * Materializa el dataset como un `Toon` (motor JS). El round-trip vía TOON es
+   * NaN-safe: el core serializa los huecos como vacío y JS los reinfiere.
+   */
+  toJS(): Toon {
+    this.assertLive();
+    return ToonFactory.from(this.toToon());
+  }
+
+  all(): Record<string, unknown>[] {
+    return this.toJS().all();
+  }
+
+  toJSON(): Record<string, unknown> {
+    return this.toJS().toJSON();
+  }
+
+  toCSV(): string {
+    return this.toJS().toCSV();
+  }
+
+  toTable(): string {
+    return this.toJS().toTable();
+  }
+
+  first(): Record<string, unknown> | undefined {
+    return this.toJS().first();
+  }
+
+  last(): Record<string, unknown> | undefined {
+    return this.toJS().last();
+  }
+
+  at(index: number): Record<string, unknown> | undefined {
+    return this.toJS().at(index);
+  }
+
+  pluck(field: string): unknown[] {
+    return this.toJS().pluck(field);
+  }
+
+  distinct(field: string): unknown[] {
+    return this.toJS().distinct(field);
+  }
+
+  countBy(field: string): Record<string, number> {
+    return this.toJS().countBy(field);
+  }
+
+  /** Proyección de campos (delegada a JS). */
+  select(...fields: string[]): ToonLike {
+    return this.toJS().select(...fields);
+  }
+
+  /** Filtro con predicado JS (no ejecutable dentro de WASM). */
+  filter(predicate: ToonPredicateFn): ToonLike {
+    return this.toJS().filter(predicate);
   }
 
   /** Libera la memoria del dataset en WASM. Obligatorio para evitar fugas. */

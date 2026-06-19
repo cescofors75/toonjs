@@ -79,12 +79,31 @@ t.free();          // ⚠️ liberar handles para evitar fugas en memoria WASM
 filtered.free();
 ```
 
-### API actual
+### Fachada drop-in
 
-Acceso/estructura: `count`, `ncols`, `fields`, `colType`, `columnF64`, `toToon`,
-`free`.
-Operaciones: `stats`, `filterRange`, `multiplyScalar`, `normalize`, `sortBy`,
-`correlation`, `correlationMatrix`, `cumsum`, `diff`, `groupAggregate`.
+`ToonWasm` implementa la interfaz común **`ToonLike`** (definida en `types.ts`),
+igual que `Toon`. Un pipeline escrito contra `ToonLike` corre en cualquiera de
+los dos motores sin cambios:
+
+```ts
+const pipeline = (t: ToonLike) =>
+  t.filterRange('monto', 100, 300)
+   .sortBy({ field: 'monto', order: 'desc' })
+   .rank('monto', 'dense')
+   .all();
+
+pipeline(ToonFactory.from(toon));   // motor JS
+pipeline(ToonWasm.from(toon));      // motor Rust→WASM — mismo resultado
+```
+
+- **Nativo en WASM** (la data permanece dentro): `stats`, `filterRange`,
+  `sortBy` (1 clave), `normalize`, `standardize`, `multiplyScalar`,
+  `correlation`, `correlationMatrix`, `cumsum`, `diff`, `pctChange`, `rolling`,
+  `rank`, `percentile`, `groupAggregate`, `columnF64`, `toToon`.
+- **Puente a JS** (`toJS()`, round-trip NaN-safe) para lo que requiere callbacks
+  o no vive aún en el core: `filter`, `select`, `all`, `first/last/at`, `pluck`,
+  `distinct`, `countBy`, `toCSV/toJSON/toTable`, y `sortBy` multi-clave.
+- ⚠️ Gestión de memoria: llamar a `free()` en los handles WASM intermedios.
 
 ---
 
@@ -113,10 +132,13 @@ Operaciones: `stats`, `filterRange`, `multiplyScalar`, `normalize`, `sortBy`,
 ## Roadmap a paridad completa
 
 1. ✅ **Operaciones pesadas in-WASM**: `sortBy`, `groupAggregate`, `correlation`/
-   `correlationMatrix` (single-pass), `cumsum`, `diff`. *(hecho)*
-2. **Pendientes**: `rolling`, `pctChange`, `standardize`, `join`, `aggregate`
-   multi-columna, `rank`/`percentile`.
-3. **Acceso a filas/JSON** sin reconstrucción cara (cursor columnar).
+   `correlationMatrix` (single-pass), `cumsum`, `diff`, `pctChange`, `rolling`,
+   `standardize`, `rank`, `percentile`. *(hecho)*
+2. ✅ **Fachada drop-in** (`ToonLike`): mismo código, dos motores. *(hecho)*
+3. **Pendientes nativos**: `join`, `aggregate` multi-columna, `select` columnar,
+   `sortBy` multi-clave (hoy via puente JS).
+4. **Acceso a filas/JSON** sin round-trip de texto (lectura directa de columnas
+   string desde WASM) para acelerar el puente `toJS()`.
 3. **Fachada drop-in**: que `ToonWasm` implemente la misma interfaz que `Toon`
    para intercambiar motor sin cambiar el código de usuario.
 4. **Memoria**: API estilo `using`/disposable para liberar handles automáticamente.

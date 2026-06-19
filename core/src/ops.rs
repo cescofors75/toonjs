@@ -247,6 +247,183 @@ pub fn group_agg(df: &DataFrame, group_col: usize, value_col: usize, op: u32) ->
     }
 }
 
+/// Z-score (estandarización poblacional) de todas las columnas numéricas.
+pub fn standardize(df: &DataFrame) -> DataFrame {
+    let columns = df
+        .columns
+        .iter()
+        .map(|c| match c {
+            Column::F64(v) => {
+                let mut sum = 0.0;
+                let mut count = 0u64;
+                for &x in v {
+                    if !x.is_nan() {
+                        sum += x;
+                        count += 1;
+                    }
+                }
+                if count == 0 {
+                    return Column::F64(v.clone());
+                }
+                let mean = sum / count as f64;
+                let mut sq = 0.0;
+                for &x in v {
+                    if !x.is_nan() {
+                        let d = x - mean;
+                        sq += d * d;
+                    }
+                }
+                let std = (sq / count as f64).sqrt();
+                let out = v
+                    .iter()
+                    .map(|&x| {
+                        if x.is_nan() {
+                            f64::NAN
+                        } else if std == 0.0 {
+                            0.0
+                        } else {
+                            (x - mean) / std
+                        }
+                    })
+                    .collect();
+                Column::F64(out)
+            }
+            other => other.clone(),
+        })
+        .collect();
+    DataFrame {
+        name: df.name.clone(),
+        fields: df.fields.clone(),
+        columns,
+        nrows: df.nrows,
+    }
+}
+
+/// Ventana deslizante. `op`: 0=sum,1=avg,2=min,3=max. Añade `${field}_rolling_${op}`.
+pub fn rolling(df: &DataFrame, col: usize, window: usize, op: u32) -> DataFrame {
+    let column = &df.columns[col];
+    let n = df.nrows;
+    let w = window.max(1);
+    let mut out = Vec::with_capacity(n);
+    for i in 0..n {
+        let start = if i + 1 >= w { i + 1 - w } else { 0 };
+        let mut sum = 0.0;
+        let mut count = 0u64;
+        let mut mn = f64::INFINITY;
+        let mut mx = f64::NEG_INFINITY;
+        for j in start..=i {
+            let v = column.num_at(j);
+            if !v.is_nan() {
+                sum += v;
+                count += 1;
+                if v < mn {
+                    mn = v;
+                }
+                if v > mx {
+                    mx = v;
+                }
+            }
+        }
+        out.push(match op {
+            0 => sum,
+            1 => if count > 0 { sum / count as f64 } else { 0.0 },
+            2 => if count > 0 { mn } else { 0.0 },
+            3 => if count > 0 { mx } else { 0.0 },
+            _ => 0.0,
+        });
+    }
+    let suffix = match op {
+        0 => "sum",
+        1 => "avg",
+        2 => "min",
+        3 => "max",
+        _ => "avg",
+    };
+    append_f64(df, format!("{}_rolling_{}", df.fields[col], suffix), out)
+}
+
+/// Cambio porcentual con `periods` atrás. Añade `${field}_pct_change_${periods}`.
+pub fn pct_change(df: &DataFrame, col: usize, periods: usize) -> DataFrame {
+    let column = &df.columns[col];
+    let mut out = Vec::with_capacity(df.nrows);
+    for i in 0..df.nrows {
+        if i >= periods {
+            let (a, b) = (column.num_at(i), column.num_at(i - periods));
+            out.push(if a.is_nan() || b.is_nan() || b == 0.0 {
+                f64::NAN
+            } else {
+                (a - b) / b * 100.0
+            });
+        } else {
+            out.push(f64::NAN);
+        }
+    }
+    append_f64(df, format!("{}_pct_change_{}", df.fields[col], periods), out)
+}
+
+/// Ranking descendente (mayor valor = rango 1). `method`: 0=dense,1=min,2=max.
+/// Añade `${field}_rank`.
+pub fn rank(df: &DataFrame, col: usize, method: u32) -> DataFrame {
+    let column = &df.columns[col];
+    let n = df.nrows;
+    let mut idx: Vec<usize> = (0..n).collect();
+    // Orden descendente por valor (NaN al final).
+    idx.sort_by(|&a, &b| {
+        let (x, y) = (column.num_at(a), column.num_at(b));
+        match (x.is_nan(), y.is_nan()) {
+            (true, true) => std::cmp::Ordering::Equal,
+            (true, false) => std::cmp::Ordering::Greater,
+            (false, true) => std::cmp::Ordering::Less,
+            (false, false) => y.partial_cmp(&x).unwrap(),
+        }
+    });
+
+    let mut ranks = vec![0.0f64; n];
+    let mut dense = 0.0;
+    let mut i = 0usize;
+    while i < n {
+        let mut j = i;
+        while j + 1 < n && column.num_at(idx[j + 1]) == column.num_at(idx[i]) {
+            j += 1;
+        }
+        dense += 1.0;
+        for k in i..=j {
+            ranks[idx[k]] = match method {
+                0 => dense,
+                1 => (i + 1) as f64,
+                _ => (j + 1) as f64,
+            };
+        }
+        i = j + 1;
+    }
+    append_f64(df, format!("{}_rank", df.fields[col]), ranks)
+}
+
+/// Percentil de cada valor (posición del primer valor ordenado >= v) / len * 100.
+/// Añade `${field}_percentile`.
+pub fn percentile(df: &DataFrame, col: usize) -> DataFrame {
+    let column = &df.columns[col];
+    let mut sorted: Vec<f64> = (0..df.nrows)
+        .map(|i| column.num_at(i))
+        .filter(|v| !v.is_nan())
+        .collect();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let len = sorted.len();
+
+    let mut out = Vec::with_capacity(df.nrows);
+    for i in 0..df.nrows {
+        let v = column.num_at(i);
+        if v.is_nan() || len == 0 {
+            out.push(f64::NAN);
+            continue;
+        }
+        // Primer índice con sorted[idx] >= v (búsqueda binaria).
+        let pos = sorted.partition_point(|&x| x < v);
+        out.push(pos as f64 / len as f64 * 100.0);
+    }
+    append_f64(df, format!("{}_percentile", df.fields[col]), out)
+}
+
 // ----- helpers -----
 
 fn cell_string(col: &Column, i: usize) -> String {

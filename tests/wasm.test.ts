@@ -1,5 +1,6 @@
 import { initToonWasm, ToonWasm } from '../wasm/loader';
 import { ToonFactory } from '../factory';
+import { ToonLike } from '../types';
 
 beforeAll(async () => {
   await initToonWasm();
@@ -70,7 +71,7 @@ describe('Core WASM: operaciones encadenadas (data permanece en WASM)', () => {
 
   it('normalize lleva a [0,1]', () => {
     const t = ToonWasm.from(`d[4]{v}:\n  0\n  5\n  10\n  20`);
-    const n = t.normalize();
+    const n = t.normalize() as ToonWasm;
     const col = n.columnF64('v');
     expect(col[0]).toBeCloseTo(0);
     expect(col[3]).toBeCloseTo(1);
@@ -90,8 +91,10 @@ describe('Core WASM: operaciones encadenadas (data permanece en WASM)', () => {
 describe('Core WASM: operaciones pesadas (paridad con JS)', () => {
   it('sortBy asc/desc', () => {
     const t = ToonWasm.from(`d[4]{v}:\n  3\n  1\n  4\n  2`);
-    expect(Array.from(t.sortBy('v', 'asc').columnF64('v'))).toEqual([1, 2, 3, 4]);
-    expect(Array.from(t.sortBy('v', 'desc').columnF64('v'))).toEqual([4, 3, 2, 1]);
+    const asc = t.sortBy({ field: 'v', order: 'asc' }) as ToonWasm;
+    const desc = t.sortBy({ field: 'v', order: 'desc' }) as ToonWasm;
+    expect(Array.from(asc.columnF64('v'))).toEqual([1, 2, 3, 4]);
+    expect(Array.from(desc.columnF64('v'))).toEqual([4, 3, 2, 1]);
     t.free();
   });
 
@@ -137,6 +140,51 @@ describe('Core WASM: operaciones pesadas (paridad con JS)', () => {
     expect(Array.from(g.columnF64('value'))).toEqual([30, 20]);
     t.free();
     g.free();
+  });
+});
+
+describe('Drop-in: el mismo pipeline en ambos motores da igual resultado', () => {
+  const TOON = `ventas[6]{producto,region,monto}:
+    A,norte,100
+    B,sur,250
+    A,sur,150
+    C,norte,300
+    B,norte,80
+    A,sur,200`;
+
+  // Pipeline escrito UNA vez contra la interfaz común ToonLike.
+  const pipeline = (t: ToonLike) =>
+    t
+      .filterRange('monto', 100, 300)
+      .sortBy({ field: 'monto', order: 'desc' })
+      .rank('monto', 'dense')
+      .all();
+
+  it('Toon (JS) y ToonWasm producen el mismo all()', () => {
+    const js = pipeline(ToonFactory.from(TOON));
+    const w = pipeline(ToonWasm.from(TOON));
+    expect(w).toEqual(js);
+  });
+
+  it('stats coincide entre motores tras normalize', () => {
+    const js = ToonFactory.from(TOON).normalize(['monto']).stats('monto');
+    const w = ToonWasm.from(TOON).normalize(['monto']).stats('monto');
+    expect(w.min).toBeCloseTo(js.min);
+    expect(w.max).toBeCloseTo(js.max);
+    expect(w.avg).toBeCloseTo(js.avg);
+  });
+
+  it('rolling/diff/percentile coinciden entre motores', () => {
+    const seq = `s[5]{v}:\n  10\n  20\n  15\n  30\n  25`;
+    const jsR = ToonFactory.from(seq).rolling('v', 3, 'avg').pluck('v_rolling_avg').map(Number);
+    const wT = ToonWasm.from(seq);
+    const wR = (wT.rolling('v', 3, 'avg') as ToonWasm).pluck('v_rolling_avg').map(Number);
+    jsR.forEach((x, i) => expect(wR[i]).toBeCloseTo(x));
+
+    const jsP = ToonFactory.from(seq).percentile('v').pluck('v_percentile').map(Number);
+    const wP = (wT.percentile('v') as ToonWasm).pluck('v_percentile').map(Number);
+    jsP.forEach((x, i) => expect(wP[i]).toBeCloseTo(x));
+    wT.free();
   });
 });
 
