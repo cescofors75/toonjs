@@ -3,6 +3,7 @@
  */
 
 import { ToonDataset, ToonSchema, ToonPredicateFn, ToonMapFn, ToonCompareFn, ToonReduceFn, ToonColumnMap } from './types';
+import { escapeField } from './csv-util';
 
 export class Toon {
   private _name: string;
@@ -219,7 +220,7 @@ export class Toon {
 
     for (let i = 0; i < this._rowCount; i++) {
       const row = this.getRow(i);
-      const values = fields.map(field => String(row[field] ?? '')).join(',');
+      const values = fields.map(field => escapeField(row[field])).join(',');
       result += `  ${values}\n`;
     }
 
@@ -242,12 +243,12 @@ export class Toon {
    */
   toCSV(): string {
     const fields = Object.keys(this._schema);
-    const header = fields.join(',');
+    const header = fields.map(escapeField).join(',');
     let rowsStr = '';
-    
+
     for (let i = 0; i < this._rowCount; i++) {
       const row = this.getRow(i);
-      rowsStr += fields.map(field => String(row[field] ?? '')).join(',') + '\n';
+      rowsStr += fields.map(field => escapeField(row[field])).join(',') + '\n';
     }
     return `${header}\n${rowsStr.trim()}`;
   }
@@ -258,24 +259,23 @@ export class Toon {
    * Obtiene la primera fila
    */
   first(): Record<string, unknown> | undefined {
-    return this.dataset.rows[0];
+    return this._rowCount > 0 ? this.getRow(0) : undefined;
   }
 
   /**
    * Obtiene la última fila
    */
   last(): Record<string, unknown> | undefined {
-    return this.dataset.rows[this.dataset.rows.length - 1];
+    return this._rowCount > 0 ? this.getRow(this._rowCount - 1) : undefined;
   }
 
   /**
    * Obtiene una fila por índice
    */
   at(index: number): Record<string, unknown> | undefined {
-    if (index < 0) {
-      return this.dataset.rows[this.dataset.rows.length + index];
-    }
-    return this.dataset.rows[index];
+    const idx = index < 0 ? this._rowCount + index : index;
+    if (idx < 0 || idx >= this._rowCount) return undefined;
+    return this.getRow(idx);
   }
 
   /**
@@ -307,29 +307,41 @@ export class Toon {
    * Verifica si alguna fila cumple la condición
    */
   some(predicate: ToonPredicateFn): boolean {
-    return this.dataset.rows.some(predicate);
+    for (let i = 0; i < this._rowCount; i++) {
+      if (predicate(this.getRow(i), i)) return true;
+    }
+    return false;
   }
 
   /**
    * Verifica si todas las filas cumplen la condición
    */
   every(predicate: ToonPredicateFn): boolean {
-    return this.dataset.rows.every(predicate);
+    for (let i = 0; i < this._rowCount; i++) {
+      if (!predicate(this.getRow(i), i)) return false;
+    }
+    return true;
   }
 
   /**
    * Comprueba si el dataset está vacío
    */
   isEmpty(): boolean {
-    return this.dataset.rows.length === 0;
+    return this._rowCount === 0;
   }
 
   /**
    * Obtiene valores únicos de un campo
+   * OPTIMIZADO: lee la columna directamente sin reconstruir filas
    */
   distinct(field: string): unknown[] {
-    const values = this.dataset.rows.map(row => row[field]);
-    return [...new Set(values)];
+    const col = this._columns.get(field);
+    if (!col) return [];
+    const seen = new Set<unknown>();
+    for (let i = 0; i < this._rowCount; i++) {
+      seen.add(col[i]);
+    }
+    return [...seen];
   }
 
   /**
@@ -398,15 +410,22 @@ export class Toon {
    * Agrega un campo calculado
    */
   addField(field: string, callback: (row: Record<string, unknown>) => unknown): Toon {
-    const newSchema = {
-      ...this.dataset.schema,
-      [field]: 'string',
-    };
-
     const newRows = this.dataset.rows.map(row => ({
       ...row,
       [field]: callback(row),
     }));
+
+    // Infiere el tipo del nuevo campo a partir del primer valor calculado,
+    // para que las columnas numéricas usen el motor Float64Array.
+    const sample = newRows.length > 0 ? newRows[0][field] : undefined;
+    const inferred = typeof sample === 'number' ? 'number'
+      : typeof sample === 'boolean' ? 'boolean'
+      : 'string';
+
+    const newSchema = {
+      ...this.dataset.schema,
+      [field]: inferred,
+    };
 
     return new Toon({
       ...this.dataset,
@@ -471,6 +490,13 @@ export class Toon {
       ...other.schema(),
     };
 
+    // Plantillas con null para rellenar el lado sin coincidencia, evitando
+    // filas con campos ausentes (esquema inconsistente).
+    const leftNulls: Record<string, unknown> = {};
+    for (const f of Object.keys(this.dataset.schema)) leftNulls[f] = null;
+    const rightNulls: Record<string, unknown> = {};
+    for (const f of Object.keys(other.schema())) rightNulls[f] = null;
+
     if (type === 'inner' || type === 'left') {
       for (const leftRow of this.dataset.rows) {
         const matches = otherRows.filter(
@@ -482,7 +508,7 @@ export class Toon {
             result.push({ ...leftRow, ...match });
           });
         } else if (type === 'left') {
-          result.push({ ...leftRow });
+          result.push({ ...rightNulls, ...leftRow });
         }
       }
     }
@@ -498,7 +524,7 @@ export class Toon {
             result.push({ ...match, ...rightRow });
           });
         } else {
-          result.push({ ...rightRow });
+          result.push({ ...leftNulls, ...rightRow });
         }
       }
     }
@@ -766,25 +792,36 @@ export class Toon {
    * Convierte a array simple de un campo
    */
   pluck(field: string): unknown[] {
-    return this.dataset.rows.map(row => row[field]);
+    const col = this._columns.get(field);
+    if (!col) return new Array(this._rowCount).fill(undefined);
+    const result = new Array(this._rowCount);
+    for (let i = 0; i < this._rowCount; i++) result[i] = col[i];
+    return result;
   }
 
   /**
    * Cuenta ocurrencias de valores en un campo
+   * OPTIMIZADO: lee la columna directamente sin reconstruir filas
    */
   countBy(field: string): Record<string, number> {
-    return this.dataset.rows.reduce<Record<string, number>>((acc, row) => {
-      const key = String(row[field]);
+    const col = this._columns.get(field);
+    const acc: Record<string, number> = {};
+    if (!col) return acc;
+    for (let i = 0; i < this._rowCount; i++) {
+      const key = String(col[i]);
       acc[key] = (acc[key] || 0) + 1;
-      return acc;
-    }, {});
+    }
+    return acc;
   }
 
   /**
    * Encuentra el índice de la primera fila que cumple la condición
    */
   findIndex(predicate: ToonPredicateFn): number {
-    return this.dataset.rows.findIndex(predicate);
+    for (let i = 0; i < this._rowCount; i++) {
+      if (predicate(this.getRow(i), i)) return i;
+    }
+    return -1;
   }
 
   /**
@@ -1838,8 +1875,9 @@ export class Toon {
         return { ...row, [newFieldName]: null };
       }
 
+      // value siempre está presente en 'sorted', así que findIndex >= 0.
       const position = sorted.findIndex(v => v >= value);
-      const percentile = position >= 0 ? (position / sorted.length) * 100 : 100;
+      const percentile = (position / sorted.length) * 100;
 
       return {
         ...row,

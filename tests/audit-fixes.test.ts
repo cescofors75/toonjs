@@ -31,8 +31,8 @@ describe('Parser: inferencia de tipos y motor columnar', () => {
     expect(t.schema().v).toBe('string');
   });
 
-  it('los huecos no fuerzan el tipo y se excluyen de stats', () => {
-    const t = ToonFactory.from(`g[3]{x}:\n  10\n  \n  30`);
+  it('los huecos (campo vacío) no fuerzan el tipo y se excluyen de stats', () => {
+    const t = ToonFactory.from(`g[3]{id,x}:\n  1,10\n  2,\n  3,30`);
     expect(t.schema().x).toBe('number');
     const s = t.stats('x');
     expect(s.count).toBe(2); // el hueco no cuenta
@@ -71,6 +71,45 @@ describe('aggregate min/max y binning sin desbordar la pila', () => {
     const row = agg.all()[0];
     expect(row.mn).toBe(0);
     expect(row.mx).toBe(199999);
+  });
+});
+
+describe('Escapado CSV/TOON: round-trip con comas y comillas', () => {
+  it('toCSV escapa valores con comas y comillas', () => {
+    const t = new Toon({
+      name: 'x',
+      schema: { a: 'string', b: 'string' },
+      rows: [{ a: 'Hola, mundo', b: 'di "hola"' }],
+    });
+    const csv = t.toCSV();
+    expect(csv).toContain('"Hola, mundo"');
+    expect(csv).toContain('"di ""hola"""');
+  });
+
+  it('round-trip toToon -> parse preserva valores con comas', () => {
+    const t = new Toon({
+      name: 'd',
+      schema: { name: 'string', note: 'string' },
+      rows: [{ name: 'Acme, Inc', note: 'a,b,c' }],
+    });
+    const reparsed = ToonFactory.from(t.toToon());
+    expect(reparsed.all()[0].name).toBe('Acme, Inc');
+    expect(reparsed.all()[0].note).toBe('a,b,c');
+  });
+});
+
+describe('join left/right rellena con null el lado sin coincidencia', () => {
+  const left = () => new Toon({ name: 'u', schema: { id: 'number', name: 'string' }, rows: [{ id: 1, name: 'Alice' }, { id: 2, name: 'Bob' }] });
+  const right = () => new Toon({ name: 'o', schema: { uid: 'number', total: 'number' }, rows: [{ uid: 1, total: 100 }] });
+
+  it('left join: campos del lado derecho sin match quedan en null', () => {
+    const res = left().join(right(), 'id', 'uid', 'left');
+    expect(res.count()).toBe(2);
+    const bob = res.all().find(r => r.name === 'Bob')!;
+    // El campo del lado sin match ahora EXISTE (esquema consistente). En una
+    // columna numérica el "ausente" se representa como NaN.
+    expect('total' in bob).toBe(true);
+    expect(Number.isNaN(bob.total)).toBe(true);
   });
 });
 

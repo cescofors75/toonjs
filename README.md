@@ -3,7 +3,7 @@
 **A high-performance TypeScript library for tabular data manipulation with a custom TOON format**
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/tests-275%2B%20passing-brightgreen.svg)](https://github.com/cescofors75/toonjs)
+[![Tests](https://img.shields.io/badge/tests-288%20passing-brightgreen.svg)](https://github.com/cescofors75/toonjs)
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](https://github.com/cescofors75/toonjs)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Performance](https://img.shields.io/badge/performance-Ultra%20Fast-orange.svg)](https://github.com/cescofors75/toonjs/blob/main/PERFORMANCE.md)
@@ -18,17 +18,17 @@
 
 ### 📖 Overview
 
-ToonJS is a powerful, zero-dependency TypeScript library for working with tabular data. It introduces the TOON format - a human-readable, efficient way to represent datasets - and provides **100+ optimized methods** for data manipulation, analysis, and transformation.
+ToonJS is a powerful TypeScript library for working with tabular data. It introduces the TOON format - a human-readable, efficient way to represent datasets - and provides **100+ optimized methods** for data manipulation, analysis, and transformation.
 
 ### ✨ Key Features
 
 - **🚀 Ultra High Performance**: Powered by **Float64Array Columnar Architecture**. Up to **10x faster** for numeric operations.
-- **📦 Zero Dependencies**: Pure TypeScript, no external packages
+- **📦 Lightweight**: Core engine in pure TypeScript. Only `pino` is bundled (structured logging).
 - **🎯 Type-Safe**: Full TypeScript support with comprehensive type definitions
 - **🔗 Chainable API**: Fluent interface for elegant data pipelines
 - **📊 Rich Functionality**: Matrix operations, Time Series analysis, Advanced Statistics, and more.
 - **🎨 Custom Format**: TOON format - compact and human-readable
-- **✅ Battle-Tested**: **275+ tests** including Fuzzing and Invariant checks.
+- **✅ Battle-Tested**: **288 tests** including Fuzzing and Invariant checks.
 - **🌐 Universal**: Works in Node.js and browsers
 
 ### 🆕 New in v1.1
@@ -248,7 +248,7 @@ ToonJS is optimized for high performance:
 - **Rolling Average**: 1.25x más rápido
 - **Overall**: Promedio 2.2x más rápido en benchmarks verificables
 
-See [PERFORMANCE.md](docs/PERFORMANCE.md) for detailed benchmarks.
+Run `node benchmark-v2.js` for local benchmarks.
 
 ### 🧪 Testing
 
@@ -257,7 +257,7 @@ npm test              # Run all tests
 npm run build         # Build TypeScript
 ```
 
-All 102 tests passing with 100% coverage.
+All 288 tests passing.
 
 ### 📄 License
 
@@ -285,17 +285,17 @@ Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md)
 
 ### 📖 Descripción
 
-ToonJS es una poderosa biblioteca TypeScript sin dependencias para trabajar con datos tabulares. Introduce el formato TOON - una forma legible y eficiente de representar conjuntos de datos - y proporciona **más de 100 métodos optimizados** para manipulación, análisis y transformación de datos.
+ToonJS es una poderosa biblioteca TypeScript para trabajar con datos tabulares. Introduce el formato TOON - una forma legible y eficiente de representar conjuntos de datos - y proporciona **más de 100 métodos optimizados** para manipulación, análisis y transformación de datos.
 
 ### ✨ Características Principales
 
 - **🚀 Ultra Alto Rendimiento**: Impulsado por **Arquitectura Columnar Float64Array**. Hasta **10x más rápido** en operaciones numéricas.
-- **📦 Sin Dependencias**: TypeScript puro, sin paquetes externos
+- **📦 Ligero**: Motor en TypeScript puro. Solo incluye `pino` (logging estructurado).
 - **🎯 Type-Safe**: Soporte completo de TypeScript con definiciones exhaustivas
 - **🔗 API Encadenable**: Interfaz fluida para pipelines elegantes
 - **📊 Funcionalidad Rica**: Operaciones matriciales, Series Temporales, Estadísticas Avanzadas y más.
 - **🎨 Formato Personalizado**: Formato TOON - compacto y legible
-- **✅ Probado en Batalla**: **275+ tests** incluyendo Fuzzing y verificación de invariantes.
+- **✅ Probado en Batalla**: **288 tests** incluyendo Fuzzing y verificación de invariantes.
 - **🌐 Universal**: Funciona en Node.js y navegadores
 
 ### 🆕 Nuevo en v1.1
@@ -317,7 +317,7 @@ npm install @cescofors/toonjs
 #### Uso Básico
 
 ```typescript
-import { ToonFactory } from '@cesco/toon';
+import { ToonFactory } from '@cescofors/toonjs';
 
 // Crear dataset desde formato TOON
 const data = ToonFactory.from(`
@@ -382,7 +382,7 @@ ToonJS está optimizado para alto rendimiento:
 - **Media Móvil**: 1.25x más rápido
 - **General**: Promedio 2.2x más rápido en benchmarks verificables
 
-Ver [PERFORMANCE.md](docs/PERFORMANCE.md) para benchmarks detallados.
+Ejecuta `node benchmark-v2.js` para benchmarks locales.
 
 ### 🧪 Pruebas
 
@@ -391,7 +391,7 @@ npm test              # Ejecutar todos los tests
 npm run build         # Compilar TypeScript
 ```
 
-Los 102 tests pasan con 100% de cobertura.
+Los 288 tests pasan correctamente.
 
 ### 📄 Licencia
 

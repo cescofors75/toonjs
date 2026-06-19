@@ -2,7 +2,10 @@
 
 Auditoría de bugs, mejoras y optimizaciones. Fecha: 2026-06-19.
 
-Estado: **285 tests en verde** (275 originales + 10 nuevos), `tsc` limpio, build OK.
+Estado: **288 tests en verde** (275 originales + 13 nuevos), `tsc` limpio, build OK.
+
+> Segunda iteración: se han implementado además los puntos A, B, C, D, F y G
+> que inicialmente estaban como "recomendados" (ver sección correspondiente).
 
 ---
 
@@ -70,54 +73,56 @@ Los fuentes están en la raíz. Corregido a `*.ts`.
 
 ---
 
-## 📋 Recomendado (no modificado — requiere decisión de diseño)
+## ✅ Corregido (segunda iteración)
 
-### A. 🔴 `toCSV()` / `toToon()` no escapan separadores
-Si un valor contiene `,`, `"` o salto de línea, la salida queda corrupta y el
-**round-trip se rompe** (`parse(toCSV(x)) != x`). El parser tampoco soporta
-valores con comas. Solución: comillado estilo RFC 4180 en exportación + parseo.
-No incluido aquí por ser un cambio de formato con impacto en la compatibilidad.
+### A. 🔴 `toCSV()` / `toToon()` no escapaban separadores → **CORREGIDO**
+Si un valor contenía `,`, `"` o salto de línea, la salida quedaba corrupta y el
+**round-trip se rompía**. Añadido `csv-util.ts` con `escapeField`/`splitFields`
+(comillado estilo RFC 4180). Lo usan tanto las exportaciones como el parser.
+Test de round-trip con comas y comillas añadido.
 
-### B. 🟠 README desactualizado / inexacto
-- Afirma **"Zero Dependencies"**, pero hay deps reales: `pino`, `pino-pretty`,
-  `@assemblyscript/loader`.
-- Incoherencia en el nº de tests ("102" vs "275+").
-- Ejemplo en español importa de `@cesco/toon` (paquete inexistente; debería ser
-  `@cescofors/toonjs`).
-- Enlaza a `docs/PERFORMANCE.md` y `CONTRIBUTING.md` que no están en el repo.
+### B. 🟠 README desactualizado → **CORREGIDO**
+- Eliminado el falso **"Zero Dependencies"** (se documenta `pino`).
+- Nº de tests unificado a **288**.
+- Import del ejemplo en español corregido a `@cescofors/toonjs`.
+- Enlaces muertos a `docs/PERFORMANCE.md` reemplazados por `node benchmark-v2.js`.
 
-### C. 🟠 `join` left/right incompleto
-No rellena con `null` los campos del lado sin coincidencia y, si ambos datasets
-comparten nombre de columna, uno sobrescribe al otro (spread `{...a, ...b}`).
+### C. 🟠 `join` left/right incompleto → **CORREGIDO**
+Los left/right join ahora rellenan con `null` los campos del lado sin
+coincidencia (esquema consistente; en columnas numéricas el ausente es `NaN`).
+Test añadido.
 
-### D. 🟡 El parser ignora el `[count]` declarado
-`name[N]{...}` no valida que `N` coincida con el nº real de filas; sería una
-comprobación de integridad barata.
+### D. 🟡 El parser ignoraba el `[count]` declarado → **CORREGIDO**
+`materialize()` avisa (vía `logger.warn`, no fatal) si el `[N]` declarado no
+coincide con las filas reales.
+
+### F. 🟡 Reconstrucciones de filas innecesarias → **CORREGIDO**
+Migrados a acceso columnar directo (sin reconstruir todas las filas):
+`first`, `last`, `at`, `isEmpty`, `distinct`, `pluck`, `countBy`, `some`,
+`every`, `findIndex`.
+
+### G. 🟢 Menores → **CORREGIDO**
+- `addField` ahora infiere el tipo del valor calculado (number/boolean/string).
+- `percentile`: eliminada la rama inalcanzable `: 100`.
+
+---
+
+## 📋 Pendiente (requiere decisión de diseño)
 
 ### E. 🟡 `assembly/` (WASM) nunca se enlaza
 `multiplyScalar`/`transpose` en `assembly/index.ts` existen pero `toon.ts` usa
-implementaciones JS puras. La integración WASM está incompleta (característica a
-medias o código muerto según la intención).
-
-### F. 🟡 Reconstrucciones de filas innecesarias (rendimiento)
-`first/last/at/some/every/distinct/pluck/countBy/sort/...` usan el getter
-`dataset`/`rows`, que **reconstruye todas las filas** (O(filas·campos)) en cada
-llamada. Operan sobre el modelo de filas en vez de aprovechar las columnas.
-Migrarlos al acceso columnar (como ya hacen `stats`/`filterRange`) daría la
-ventaja de rendimiento que promete el README.
-
-### G. 🟢 Otros menores
-- `addField` marca el nuevo campo como `'string'` aunque el callback devuelva número.
-- `percentile`: la rama `: 100` es inalcanzable (`findIndex` siempre encuentra el valor).
-- `benchmark-v2.js` construye con `schema: number` directo, así que mide el path
-  columnar que el parser **no** activaba — no reflejaba el uso real.
+implementaciones JS puras, y el build de AssemblyScript no se genera ni se
+incluye en `files`. Integrarlo de verdad (carga del `.wasm`, gestión de memoria,
+fallback) es una **funcionalidad nueva**, no una corrección de auditoría, por lo
+que se deja documentado para decisión: o se cablea, o se elimina junto a la
+dependencia `@assemblyscript/loader`.
 
 ---
 
 ## Resumen
-| Severidad | Corregidos | Recomendados |
-|-----------|-----------|--------------|
-| 🔴 Crítico | 3 | 1 |
-| 🟠 Alto    | 4 | 2 |
-| 🟡 Medio   | 2 | 3 |
-| 🟢 Bajo    | 1 | 1 |
+| Severidad | Corregidos | Pendientes |
+|-----------|-----------|------------|
+| 🔴 Crítico | 4 | 0 |
+| 🟠 Alto    | 6 | 0 |
+| 🟡 Medio   | 4 | 1 |
+| 🟢 Bajo    | 2 | 0 |

@@ -3,12 +3,15 @@
  */
 
 import { ToonDataset, ToonSchema } from './types';
+import { splitFields } from './csv-util';
+import { logger } from './logger';
 
 /** Representación intermedia: filas aún sin tipar (valores string crudos). */
 interface RawDataset {
   name: string;
   fields: string[];
   rawRows: string[][];
+  declaredCount: number;
 }
 
 export class ToonParser {
@@ -71,17 +74,18 @@ export class ToonParser {
         !line.startsWith(' ') && !line.startsWith('\t') && trimmed.includes(':');
 
       if (isHeader) {
-        const match = trimmed.match(/(\w+)\[\d+\]\{(.*?)\}:/);
+        const match = trimmed.match(/(\w+)\[(\d+)\]\{(.*?)\}:/);
         if (match) {
           flush();
           current = {
             name: match[1],
-            fields: match[2].split(',').map(f => f.trim()),
+            declaredCount: Number(match[2]),
+            fields: match[3].split(',').map(f => f.trim()),
             rawRows: [],
           };
         }
       } else if ((line.startsWith(' ') || line.startsWith('\t')) && current) {
-        current.rawRows.push(trimmed.split(',').map(v => v.trim()));
+        current.rawRows.push(splitFields(trimmed));
       }
     }
 
@@ -95,7 +99,15 @@ export class ToonParser {
    * numéricas (en lugar de tratar todo como string).
    */
   private static materialize(raw: RawDataset): ToonDataset {
-    const { name, fields, rawRows } = raw;
+    const { name, fields, rawRows, declaredCount } = raw;
+
+    // Comprobación de integridad barata: avisar si el [count] declarado no
+    // coincide con las filas reales (no es fatal, el parseo continúa).
+    if (declaredCount !== rawRows.length) {
+      logger.warn(
+        `TOON dataset "${name}": declared count ${declaredCount} != actual rows ${rawRows.length}`
+      );
+    }
 
     // 1. Inferir tipo de cada campo a partir de todos sus valores.
     const schema: ToonSchema = {};
