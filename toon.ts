@@ -34,9 +34,9 @@ export class Toon {
         const col = this._columns.get(field)!;
         const val = row[field];
         if (col instanceof Float64Array) {
-           const num = Number(val);
-           // Allow NaN for missing values instead of forcing 0
-           col[i] = num;
+           // Missing values (null/undefined) become NaN so they are excluded
+           // from stats/filters, instead of being coerced to 0 by Number().
+           col[i] = (val === null || val === undefined) ? NaN : Number(val);
         } else {
            (col as unknown[])[i] = val;
         }
@@ -533,12 +533,18 @@ export class Toon {
           case 'avg':
             aggregated[alias] = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
             break;
-          case 'min':
-            aggregated[alias] = values.length > 0 ? Math.min(...values) : null;
+          case 'min': {
+            let m = Infinity;
+            for (let k = 0; k < values.length; k++) if (values[k] < m) m = values[k];
+            aggregated[alias] = values.length > 0 ? m : null;
             break;
-          case 'max':
-            aggregated[alias] = values.length > 0 ? Math.max(...values) : null;
+          }
+          case 'max': {
+            let m = -Infinity;
+            for (let k = 0; k < values.length; k++) if (values[k] > m) m = values[k];
+            aggregated[alias] = values.length > 0 ? m : null;
             break;
+          }
           case 'count':
             aggregated[alias] = rows.length;
             break;
@@ -1466,8 +1472,12 @@ export class Toon {
    */
   binning(field: string, bins: number | number[], labels?: string[]): Toon {
     const values = this.pluck(field).map(v => Number(v)).filter(v => !isNaN(v));
-    const min = Math.min(...values);
-    const max = Math.max(...values);
+    let min = Infinity;
+    let max = -Infinity;
+    for (let k = 0; k < values.length; k++) {
+      if (values[k] < min) min = values[k];
+      if (values[k] > max) max = values[k];
+    }
 
     let edges: number[];
     if (typeof bins === 'number') {
@@ -1778,24 +1788,28 @@ export class Toon {
     const values = this.pluck(field).map((v, idx) => ({ value: Number(v), index: idx }));
     const sorted = values.sort((a, b) => b.value - a.value);
 
+    // Ranking descendente (el valor más alto recibe el rango 1). Se agrupan
+    // los empates para que 'min'/'max'/'dense' difieran correctamente:
+    //   - 'min':   rango = posición más baja del grupo de empate
+    //   - 'max':   rango = posición más alta del grupo de empate
+    //   - 'dense': rango = nº de valores distintos vistos hasta el momento
     const ranks: number[] = new Array(values.length);
-    let currentRank = 1;
-
-    for (let i = 0; i < sorted.length; i++) {
-      if (i > 0 && sorted[i].value === sorted[i - 1].value) {
-        ranks[sorted[i].index] = ranks[sorted[i - 1].index];
-      } else {
-        if (method === 'dense' && i > 0 && sorted[i].value !== sorted[i - 1].value) {
-          currentRank = ranks[sorted[i - 1].index] + 1;
-        } else if (method === 'min' || method === 'max') {
-          currentRank = i + 1;
-        }
-        ranks[sorted[i].index] = currentRank;
+    let denseRank = 0;
+    let i = 0;
+    while (i < sorted.length) {
+      let j = i;
+      while (j + 1 < sorted.length && sorted[j + 1].value === sorted[i].value) {
+        j++;
       }
-
-      if (method !== 'dense' && i === sorted.length - 1) {
-        currentRank++;
+      denseRank++;
+      for (let k = i; k <= j; k++) {
+        let r: number;
+        if (method === 'dense') r = denseRank;
+        else if (method === 'min') r = i + 1;
+        else r = j + 1; // 'max'
+        ranks[sorted[k].index] = r;
       }
+      i = j + 1;
     }
 
     const newRows = this.dataset.rows.map((row, idx) => ({

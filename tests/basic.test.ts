@@ -137,10 +137,12 @@ describe('Toon - Exportación', () => {
     expect((json.rows as any[]).length).toBe(2);
   });
 
-  test('schema() devuelve el esquema', () => {
+  test('schema() devuelve el esquema con tipos inferidos', () => {
     const schema = toon.schema();
+    // 'nombre' contiene texto -> string; 'valor' contiene solo números ->
+    // se infiere 'number' para activar el motor columnar Float64Array.
     expect(schema.nombre).toBe('string');
-    expect(schema.valor).toBe('string');
+    expect(schema.valor).toBe('number');
   });
 });
 

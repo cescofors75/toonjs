@@ -20,14 +20,6 @@ if (process.platform === 'win32' && process.stdout.isTTY) {
   }
 }
 
-// Ultra-fast custom formatter for development (faster than pino-pretty)
-const fastDevTransport = pino.transport({
-  target: 'pino/file',
-  options: { 
-    destination: 1, // stdout
-  }
-});
-
 export const logger = pino({
   level: process.env.LOG_LEVEL || 'info',
   

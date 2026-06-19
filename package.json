@@ -15,8 +15,8 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "prepublishOnly": "npm run build && npm run test",
-    "lint": "eslint src/**/*.ts",
-    "format": "prettier --write src/**/*.ts",
+    "lint": "eslint *.ts",
+    "format": "prettier --write *.ts",
     "asbuild:debug": "asc assembly/index.ts --target debug",
     "asbuild:release": "asc assembly/index.ts --target release",
     "asbuild": "npm run asbuild:debug && npm run asbuild:release",
@@ -71,8 +71,8 @@
   },
   "exports": {
     ".": {
-      "import": "./build/release.js",
-      "types": "./build/release.d.ts"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     }
   }
 }
