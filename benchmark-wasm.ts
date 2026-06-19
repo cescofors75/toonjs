@@ -43,8 +43,29 @@ async function main() {
     f.stats('qty');
     f.free();
   });
-  wT.free();
   console.log(`-> WASM pipeline ${(jsPipe / wPipe).toFixed(2)}x\n`);
+
+  // --- Heavy compute: matriz de correlación de un dataset ancho ---
+  console.log('--- correlationMatrix (cómputo pesado, todo en WASM) ---');
+  const COLS = 30;
+  const RR = 20_000;
+  const fieldsList = Array.from({ length: COLS }, (_, i) => `c${i}`);
+  let wide = `w[${RR}]{${fieldsList.join(',')}}:\n`;
+  const wparts: string[] = [wide];
+  for (let i = 0; i < RR; i++) {
+    const row: number[] = [];
+    for (let j = 0; j < COLS; j++) row.push(Math.round(Math.random() * 1000) / 10);
+    wparts.push('  ' + row.join(',') + '\n');
+  }
+  wide = wparts.join('');
+
+  const jsW = ToonFactory.from(wide);
+  const jsCorr = bench('JS   correlationMatrix', () => { jsW.correlationMatrix(fieldsList); });
+  const wW = ToonWasm.from(wide);
+  const wCorr = bench('WASM correlationMatrix', () => { wW.correlationMatrix(); });
+  wT.free();
+  wW.free();
+  console.log(`-> WASM correlationMatrix ${(jsCorr / wCorr).toFixed(2)}x\n`);
 }
 
 main();

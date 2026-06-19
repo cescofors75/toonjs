@@ -81,32 +81,42 @@ filtered.free();
 
 ### API actual
 
-`count`, `ncols`, `fields`, `colType`, `stats`, `filterRange`,
-`multiplyScalar`, `normalize`, `columnF64`, `toToon`, `free`.
+Acceso/estructura: `count`, `ncols`, `fields`, `colType`, `columnF64`, `toToon`,
+`free`.
+Operaciones: `stats`, `filterRange`, `multiplyScalar`, `normalize`, `sortBy`,
+`correlation`, `correlationMatrix`, `cumsum`, `diff`, `groupAggregate`.
 
 ---
 
-## Benchmark (200k filas, ~3.5 MB TOON)
+## Benchmark (200k filas, ~3.5 MB TOON; matriz: 20k×30)
 
 | Operación | JS | WASM | Speedup |
 |-----------|----|------|---------|
-| parse | 176 ms | 98 ms | **1.80x** |
-| filterRange + stats | 9.0 ms | 4.8 ms | **1.88x** |
+| parse | 176 ms | 104 ms | **1.70x** |
+| filterRange + stats | 7.9 ms | 4.3 ms | **1.85x** |
+| correlationMatrix | 187 ms | 11 ms | **16.7x** |
 
-**Lectura honesta:** ~2x, **no** 10x. Los bucles JS sobre `Float64Array` ya están
-muy optimizados por el JIT, y el coste de copiar la entrada a memoria WASM no es
-gratis. WASM gana más cuanto: (a) más data permanece dentro entre operaciones, y
-(b) más pesado es el cómputo por elemento. Para `multiplyScalar` aislado el
-copiado domina y el beneficio se diluye.
+**Lectura honesta:**
+
+- En operaciones **dominadas por bucles numéricos simples** (parse, filter+stats),
+  WASM da ~**1.7–1.9x**, *no* 10x: el JIT ya optimiza muy bien los bucles sobre
+  `Float64Array` y copiar la entrada a memoria WASM cuesta. Con el **mismo**
+  algoritmo naïve, `correlationMatrix` daba apenas **1.07x**.
+- El salto a **16.7x** viene de poder **mejorar el algoritmo** en el core: una
+  covarianza en **una sola pasada** (`E[xy] − E[x]E[y]`) en vez de las ~6 pasadas
+  por par del naïve. WASM aporta el factor constante (~1.8x); el resto es el
+  algoritmo. *Esta es la verdadera razón para tener un core propio:* control total
+  sobre layout de memoria y algoritmos, no la magia de WASM en sí.
 
 ---
 
 ## Roadmap a paridad completa
 
-1. **Más operaciones in-WASM**: `sortBy`, `groupBy`/`aggregate`, `correlation`/
-   `correlationMatrix`, series temporales (`rolling`, `diff`, `cumsum`).
-   Aquí es donde WASM debería despegar (cómputo pesado, todo dentro).
-2. **Acceso a filas/JSON** sin reconstrucción cara (cursor columnar).
+1. ✅ **Operaciones pesadas in-WASM**: `sortBy`, `groupAggregate`, `correlation`/
+   `correlationMatrix` (single-pass), `cumsum`, `diff`. *(hecho)*
+2. **Pendientes**: `rolling`, `pctChange`, `standardize`, `join`, `aggregate`
+   multi-columna, `rank`/`percentile`.
+3. **Acceso a filas/JSON** sin reconstrucción cara (cursor columnar).
 3. **Fachada drop-in**: que `ToonWasm` implemente la misma interfaz que `Toon`
    para intercambiar motor sin cambiar el código de usuario.
 4. **Memoria**: API estilo `using`/disposable para liberar handles automáticamente.

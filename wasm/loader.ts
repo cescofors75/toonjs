@@ -31,6 +31,12 @@ interface CoreExports {
   tj_to_toon(handle: number): bigint;
   tj_column_f64(handle: number, col: number): bigint;
   tj_field_name(handle: number, col: number): bigint;
+  tj_sort_by(handle: number, col: number, desc: number): number;
+  tj_correlation(handle: number, c1: number, c2: number): number;
+  tj_correlation_matrix(handle: number): bigint;
+  tj_cumsum(handle: number, col: number): number;
+  tj_diff(handle: number, col: number, periods: number): number;
+  tj_group_agg(handle: number, groupCol: number, valueCol: number, op: number): number;
 }
 
 let core: CoreExports | null = null;
@@ -82,7 +88,20 @@ function readString(packed: bigint): string {
   return s;
 }
 
+function readF64(packed: bigint): Float64Array {
+  const { ptr, len } = unpack(packed);
+  if (len === 0) return new Float64Array(0);
+  const view = new Float64Array(ex().memory.buffer, ptr, len);
+  const copy = view.slice();
+  ex().tj_free_f64(ptr, len);
+  return copy;
+}
+
 const STAT = { min: 0, max: 1, sum: 2, avg: 3, count: 4 } as const;
+
+/** Operaciones de agregación soportadas por groupAggregate. */
+export type AggOp = 'sum' | 'avg' | 'min' | 'max' | 'count';
+const AGG_OP: Record<AggOp, number> = { sum: 0, avg: 1, min: 2, max: 3, count: 4 };
 
 export interface ToonStats {
   min: number;
@@ -186,13 +205,53 @@ export class ToonWasm {
   /** Copia una columna numérica a un Float64Array de JS. */
   columnF64(col: number | string): Float64Array {
     this.assertLive();
-    const e = ex();
-    const { ptr, len } = unpack(e.tj_column_f64(this.handle, this.colIndex(col)));
-    if (len === 0) return new Float64Array(0);
-    const view = new Float64Array(e.memory.buffer, ptr, len);
-    const copy = view.slice();
-    e.tj_free_f64(ptr, len);
-    return copy;
+    return readF64(ex().tj_column_f64(this.handle, this.colIndex(col)));
+  }
+
+  /** Ordena por una columna (asc por defecto). Devuelve un nuevo dataset. */
+  sortBy(col: number | string, order: 'asc' | 'desc' = 'asc'): ToonWasm {
+    this.assertLive();
+    return new ToonWasm(ex().tj_sort_by(this.handle, this.colIndex(col), order === 'desc' ? 1 : 0));
+  }
+
+  /** Correlación de Pearson entre dos columnas. */
+  correlation(c1: number | string, c2: number | string): number {
+    this.assertLive();
+    return ex().tj_correlation(this.handle, this.colIndex(c1), this.colIndex(c2));
+  }
+
+  /** Matriz de correlación de todas las columnas, indexada por nombre de campo. */
+  correlationMatrix(): Record<string, Record<string, number>> {
+    this.assertLive();
+    const fields = this.fields();
+    const n = fields.length;
+    const flat = readF64(ex().tj_correlation_matrix(this.handle));
+    const out: Record<string, Record<string, number>> = {};
+    for (let i = 0; i < n; i++) {
+      out[fields[i]] = {};
+      for (let j = 0; j < n; j++) out[fields[i]][fields[j]] = flat[i * n + j];
+    }
+    return out;
+  }
+
+  /** Suma acumulada: añade la columna `${field}_cumsum`. */
+  cumsum(col: number | string): ToonWasm {
+    this.assertLive();
+    return new ToonWasm(ex().tj_cumsum(this.handle, this.colIndex(col)));
+  }
+
+  /** Diferencia con `periods` atrás: añade `${field}_diff_${periods}`. */
+  diff(col: number | string, periods = 1): ToonWasm {
+    this.assertLive();
+    return new ToonWasm(ex().tj_diff(this.handle, this.colIndex(col), periods));
+  }
+
+  /** Agrupa por `groupCol` y agrega `valueCol`. Columnas resultado: [grupo, value]. */
+  groupAggregate(groupCol: number | string, valueCol: number | string, op: AggOp): ToonWasm {
+    this.assertLive();
+    return new ToonWasm(
+      ex().tj_group_agg(this.handle, this.colIndex(groupCol), this.colIndex(valueCol), AGG_OP[op])
+    );
   }
 
   toToon(): string {

@@ -87,6 +87,59 @@ describe('Core WASM: operaciones encadenadas (data permanece en WASM)', () => {
   });
 });
 
+describe('Core WASM: operaciones pesadas (paridad con JS)', () => {
+  it('sortBy asc/desc', () => {
+    const t = ToonWasm.from(`d[4]{v}:\n  3\n  1\n  4\n  2`);
+    expect(Array.from(t.sortBy('v', 'asc').columnF64('v'))).toEqual([1, 2, 3, 4]);
+    expect(Array.from(t.sortBy('v', 'desc').columnF64('v'))).toEqual([4, 3, 2, 1]);
+    t.free();
+  });
+
+  it('correlation coincide con Toon.correlation', () => {
+    const TOON = `d[4]{x,y}:\n  1,2\n  2,4\n  3,6\n  4,8`;
+    const w = ToonWasm.from(TOON).correlation('x', 'y');
+    const js = ToonFactory.from(TOON).correlation('x', 'y');
+    expect(w).toBeCloseTo(js);
+    expect(w).toBeCloseTo(1); // perfectamente lineal
+  });
+
+  it('correlationMatrix indexada por campo', () => {
+    const t = ToonWasm.from(`d[3]{a,b}:\n  1,1\n  2,2\n  3,3`);
+    const m = t.correlationMatrix();
+    expect(m.a.a).toBeCloseTo(1);
+    expect(m.a.b).toBeCloseTo(1);
+    t.free();
+  });
+
+  it('cumsum acumula', () => {
+    const t = ToonWasm.from(`d[4]{v}:\n  1\n  2\n  3\n  4`);
+    const c = t.cumsum('v');
+    expect(Array.from(c.columnF64('v_cumsum'))).toEqual([1, 3, 6, 10]);
+    t.free();
+    c.free();
+  });
+
+  it('diff calcula diferencias', () => {
+    const t = ToonWasm.from(`d[4]{v}:\n  10\n  12\n  15\n  20`);
+    const d = t.diff('v', 1);
+    const out = Array.from(d.columnF64('v_diff_1'));
+    expect(out[0]).toBeNaN();
+    expect(out.slice(1)).toEqual([2, 3, 5]);
+    t.free();
+    d.free();
+  });
+
+  it('groupAggregate suma por grupo', () => {
+    const t = ToonWasm.from(`d[4]{cat,val}:\n  a,10\n  b,5\n  a,20\n  b,15`);
+    const g = t.groupAggregate('cat', 'val', 'sum');
+    expect(g.count()).toBe(2);
+    expect(g.fields()).toEqual(['cat', 'value']);
+    expect(Array.from(g.columnF64('value'))).toEqual([30, 20]);
+    t.free();
+    g.free();
+  });
+});
+
 describe('Core WASM: round-trip TOON con comas entrecomilladas', () => {
   it('toToon -> from preserva valores con comas', () => {
     const src = ToonWasm.from(`x[1]{name,note}:\n  "Acme, Inc","a,b"`);
