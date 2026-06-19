@@ -49,16 +49,27 @@ límite JS↔WASM, que es la única arquitectura donde WASM realmente compensa
 
 ## Build
 
-Requiere toolchain Rust + target wasm:
+Requiere toolchain Rust + target wasm (y `binaryen` para `wasm-opt`):
 
 ```bash
 rustup target add wasm32-unknown-unknown
-npm run build:wasm        # cargo build + embebe el base64 en wasm/
+npm run build:wasm   # cargo (+simd128) -> wasm-opt -Oz -> embebe base64
 ```
 
-El binario embebido (`wasm/toon-core.wasm.ts`) se versiona para que la librería
-funcione **sin** toolchain de Rust (consumidores npm, CI). Solo hay que
-regenerarlo al tocar el código Rust.
+Pasos (`build:wasm`):
+1. `build:wasm:rust` — `cargo build --release` con `RUSTFLAGS=-C target-feature=+simd128`.
+2. `build:wasm:opt` — `wasm-opt -Oz -all` (reduce tamaño ~11%).
+3. `build:wasm:embed` — embebe el `.wasm` como base64 en `wasm/toon-core.wasm.ts`.
+
+El binario embebido se versiona para que la librería funcione **sin** toolchain
+de Rust (consumidores npm, CI). Solo hay que regenerarlo al tocar el código Rust.
+
+### Tamaño y SIMD
+
+- `wasm-opt -Oz`: **174 KB → 155 KB** (~11% menos).
+- `simd128` habilitado. La autovectorización no mueve parse/filter (string y
+  ramas), pero un kernel elementwise escrito a mano con `f64x2`
+  (`multiplyScalar`) rinde **~5.4x** sobre JS.
 
 ---
 
@@ -111,9 +122,10 @@ pipeline(ToonWasm.from(toon));      // motor Rust→WASM — mismo resultado
 
 | Operación | JS | WASM | Speedup |
 |-----------|----|------|---------|
-| parse | 176 ms | 104 ms | **1.70x** |
-| filterRange + stats | 7.9 ms | 4.3 ms | **1.85x** |
-| correlationMatrix | 187 ms | 11 ms | **16.7x** |
+| parse | 178 ms | 105 ms | **1.70x** |
+| filterRange + stats | 9.1 ms | 5.0 ms | **1.82x** |
+| correlationMatrix | 191 ms | 11 ms | **16.9x** |
+| multiplyScalar (SIMD f64x2) | 3.4 ms | 0.6 ms | **5.4x** |
 
 **Lectura honesta:**
 
@@ -121,11 +133,13 @@ pipeline(ToonWasm.from(toon));      // motor Rust→WASM — mismo resultado
   WASM da ~**1.7–1.9x**, *no* 10x: el JIT ya optimiza muy bien los bucles sobre
   `Float64Array` y copiar la entrada a memoria WASM cuesta. Con el **mismo**
   algoritmo naïve, `correlationMatrix` daba apenas **1.07x**.
-- El salto a **16.7x** viene de poder **mejorar el algoritmo** en el core: una
+- El salto a **16.9x** viene de poder **mejorar el algoritmo** en el core: una
   covarianza en **una sola pasada** (`E[xy] − E[x]E[y]`) en vez de las ~6 pasadas
   por par del naïve. WASM aporta el factor constante (~1.8x); el resto es el
   algoritmo. *Esta es la verdadera razón para tener un core propio:* control total
   sobre layout de memoria y algoritmos, no la magia de WASM en sí.
+- **SIMD** (`f64x2`) aporta **~5.4x** en `multiplyScalar` (elementwise puro), pero
+  ~nada en parse/filter: solo brilla en kernels numéricos densos y sin ramas.
 
 ---
 

@@ -247,6 +247,53 @@ pub fn group_agg(df: &DataFrame, group_col: usize, value_col: usize, op: u32) ->
     }
 }
 
+/// Multiplica por escalar un slice f64 usando SIMD wasm (`f64x2`) cuando está
+/// disponible; si no, bucle escalar. Kernel elementwise: caso ideal para SIMD.
+#[cfg(target_feature = "simd128")]
+fn mul_scalar_slice(src: &[f64], scalar: f64) -> Vec<f64> {
+    use std::arch::wasm32::*;
+    let n = src.len();
+    let mut out = vec![0.0f64; n];
+    let s = f64x2_splat(scalar);
+    let chunks = n / 2;
+    unsafe {
+        let sp = src.as_ptr();
+        let op = out.as_mut_ptr();
+        for i in 0..chunks {
+            let off = i * 2;
+            let v = v128_load(sp.add(off) as *const v128);
+            v128_store(op.add(off) as *mut v128, f64x2_mul(v, s));
+        }
+    }
+    for i in (chunks * 2)..n {
+        out[i] = src[i] * scalar;
+    }
+    out
+}
+
+#[cfg(not(target_feature = "simd128"))]
+fn mul_scalar_slice(src: &[f64], scalar: f64) -> Vec<f64> {
+    src.iter().map(|x| x * scalar).collect()
+}
+
+/// Multiplica por un escalar todas las columnas numéricas.
+pub fn multiply_scalar(df: &DataFrame, scalar: f64) -> DataFrame {
+    let columns = df
+        .columns
+        .iter()
+        .map(|c| match c {
+            Column::F64(v) => Column::F64(mul_scalar_slice(v, scalar)),
+            other => other.clone(),
+        })
+        .collect();
+    DataFrame {
+        name: df.name.clone(),
+        fields: df.fields.clone(),
+        columns,
+        nrows: df.nrows,
+    }
+}
+
 /// Z-score (estandarización poblacional) de todas las columnas numéricas.
 pub fn standardize(df: &DataFrame) -> DataFrame {
     let columns = df

@@ -223,31 +223,10 @@ pub extern "C" fn tj_filter_range(handle: u32, col: u32, min: f64, max: f64) -> 
     }
 }
 
-/// Multiplica por un escalar todas las columnas numéricas. Devuelve nuevo handle.
+/// Multiplica por un escalar todas las columnas numéricas (SIMD). Nuevo handle.
 #[no_mangle]
 pub extern "C" fn tj_multiply_scalar(handle: u32, scalar: f64) -> u32 {
-    let new_df = REGISTRY.with(|r| {
-        let reg = r.borrow();
-        let df = reg.get(&handle)?;
-        let columns = df
-            .columns
-            .iter()
-            .map(|c| match c {
-                Column::F64(v) => Column::F64(v.iter().map(|x| x * scalar).collect()),
-                other => other.clone(),
-            })
-            .collect();
-        Some(DataFrame {
-            name: df.name.clone(),
-            fields: df.fields.clone(),
-            columns,
-            nrows: df.nrows,
-        })
-    });
-    match new_df {
-        Some(df) => store(df),
-        None => 0,
-    }
+    op_new(handle, |df| Some(ops::multiply_scalar(df, scalar)))
 }
 
 /// Normaliza (min-max -> [0,1]) todas las columnas numéricas. Nuevo handle.

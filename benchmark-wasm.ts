@@ -63,9 +63,16 @@ async function main() {
   const jsCorr = bench('JS   correlationMatrix', () => { jsW.correlationMatrix(fieldsList); });
   const wW = ToonWasm.from(wide);
   const wCorr = bench('WASM correlationMatrix', () => { wW.correlationMatrix(); });
+  console.log(`-> WASM correlationMatrix ${(jsCorr / wCorr).toFixed(2)}x\n`);
+
+  // --- Kernel elementwise (SIMD f64x2) ---
+  console.log('--- multiplyScalar (kernel elementwise, SIMD f64x2) ---');
+  const jsMul = bench('JS   multiplyScalar', () => { jsW.multiplyScalar(2.0, fieldsList); });
+  const wMul = bench('WASM multiplyScalar (SIMD)', () => { wW.multiplyScalar(2.0).free(); });
+  console.log(`-> WASM multiplyScalar ${(jsMul / wMul).toFixed(2)}x\n`);
+
   wT.free();
   wW.free();
-  console.log(`-> WASM correlationMatrix ${(jsCorr / wCorr).toFixed(2)}x\n`);
 }
 
 main();
