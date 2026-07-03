@@ -283,9 +283,10 @@ export class Toon {
    * Obtiene un slice de filas (porción del dataset)
    */
   slice(start?: number, end?: number): Toon {
-    const sliced = this.dataset.rows.slice(start, end);
+    const sliced = this.rows.slice(start, end);
     return new Toon({
-      ...this.dataset,
+      name: this._name,
+      schema: this._schema,
       rows: sliced,
     });
   }
@@ -308,29 +309,40 @@ export class Toon {
    * Verifica si alguna fila cumple la condición
    */
   some(predicate: ToonPredicateFn): boolean {
-    return this.dataset.rows.some(predicate);
+    for (let i = 0; i < this._rowCount; i++) {
+      if (predicate(this.getRow(i), i)) return true;
+    }
+    return false;
   }
 
   /**
    * Verifica si todas las filas cumplen la condición
    */
   every(predicate: ToonPredicateFn): boolean {
-    return this.dataset.rows.every(predicate);
+    for (let i = 0; i < this._rowCount; i++) {
+      if (!predicate(this.getRow(i), i)) return false;
+    }
+    return true;
   }
 
   /**
    * Comprueba si el dataset está vacío
    */
   isEmpty(): boolean {
-    return this.dataset.rows.length === 0;
+    return this._rowCount === 0;
   }
 
   /**
    * Obtiene valores únicos de un campo
    */
   distinct(field: string): unknown[] {
-    const values = this.dataset.rows.map(row => row[field]);
-    return [...new Set(values)];
+    const col = this._columns.get(field);
+    if (!col) return [];
+    const values = new Set<unknown>();
+    for (let i = 0; i < this._rowCount; i++) {
+      values.add(col[i]);
+    }
+    return [...values];
   }
 
   /**
@@ -402,17 +414,17 @@ export class Toon {
    */
   addField(field: string, callback: (row: Record<string, unknown>) => unknown): Toon {
     const newSchema = {
-      ...this.dataset.schema,
+      ...this._schema,
       [field]: 'string',
     };
 
-    const newRows = this.dataset.rows.map(row => ({
+    const newRows = this.rows.map(row => ({
       ...row,
       [field]: callback(row),
     }));
 
     return new Toon({
-      ...this.dataset,
+      name: this._name,
       schema: newSchema,
       rows: newRows,
     });
@@ -423,8 +435,9 @@ export class Toon {
    */
   reverse(): Toon {
     return new Toon({
-      ...this.dataset,
-      rows: [...this.dataset.rows].reverse(),
+      name: this._name,
+      schema: this._schema,
+      rows: [...this.rows].reverse(),
     });
   }
 
@@ -433,7 +446,7 @@ export class Toon {
    */
   unique(): Toon {
     const seen = new Set<string>();
-    const unique = this.dataset.rows.filter(row => {
+    const unique = this.rows.filter(row => {
       const key = JSON.stringify(row);
       if (seen.has(key)) return false;
       seen.add(key);
@@ -441,7 +454,8 @@ export class Toon {
     });
 
     return new Toon({
-      ...this.dataset,
+      name: this._name,
+      schema: this._schema,
       rows: unique,
     });
   }
@@ -451,8 +465,9 @@ export class Toon {
    */
   concat(other: Toon): Toon {
     return new Toon({
-      ...this.dataset,
-      rows: [...this.dataset.rows, ...other.all()],
+      name: this._name,
+      schema: this._schema,
+      rows: [...this.rows, ...other.all()],
     });
   }
 
@@ -565,7 +580,7 @@ export class Toon {
     }
 
     return new Toon({
-      name: `${this.dataset.name}_aggregated`,
+      name: `${this._name}_aggregated`,
       schema: { [groupField]: 'string', ...Object.keys(aggregations).reduce((acc, k) => ({ ...acc, [k]: 'number' }), {}) },
       rows: result,
     });
@@ -650,7 +665,7 @@ export class Toon {
    * Ordena por múltiples campos
    */
   sortBy(...fields: Array<{ field: string; order?: 'asc' | 'desc' }>): Toon {
-    const sorted = [...this.dataset.rows].sort((a, b) => {
+    const sorted = [...this.rows].sort((a, b) => {
       for (const { field, order = 'asc' } of fields) {
         const aVal = a[field];
         const bVal = b[field];
@@ -670,7 +685,8 @@ export class Toon {
     });
 
     return new Toon({
-      ...this.dataset,
+      name: this._name,
+      schema: this._schema,
       rows: sorted,
     });
   }
@@ -749,7 +765,7 @@ export class Toon {
    * Obtiene el nombre del dataset
    */
   getName(): string {
-    return this.dataset.name;
+    return this._name;
   }
 
   /**
@@ -757,8 +773,9 @@ export class Toon {
    */
   setName(name: string): Toon {
     return new Toon({
-      ...this.dataset,
       name,
+      schema: this._schema,
+      rows: this.rows,
     });
   }
 
@@ -767,8 +784,9 @@ export class Toon {
    */
   clone(): Toon {
     return new Toon({
-      ...this.dataset,
-      rows: [...this.dataset.rows],
+      name: this._name,
+      schema: this._schema,
+      rows: this.rows,
     });
   }
 
@@ -776,25 +794,37 @@ export class Toon {
    * Convierte a array simple de un campo
    */
   pluck(field: string): unknown[] {
-    return this.dataset.rows.map(row => row[field]);
+    const col = this._columns.get(field);
+    if (!col) return new Array(this._rowCount).fill(undefined);
+    const result = new Array(this._rowCount);
+    for (let i = 0; i < this._rowCount; i++) {
+      result[i] = col[i];
+    }
+    return result;
   }
 
   /**
    * Cuenta ocurrencias de valores en un campo
    */
   countBy(field: string): Record<string, number> {
-    return this.dataset.rows.reduce<Record<string, number>>((acc, row) => {
-      const key = String(row[field]);
+    const col = this._columns.get(field);
+    const acc: Record<string, number> = {};
+    if (!col) return acc;
+    for (let i = 0; i < this._rowCount; i++) {
+      const key = String(col[i]);
       acc[key] = (acc[key] || 0) + 1;
-      return acc;
-    }, {});
+    }
+    return acc;
   }
 
   /**
    * Encuentra el índice de la primera fila que cumple la condición
    */
   findIndex(predicate: ToonPredicateFn): number {
-    return this.dataset.rows.findIndex(predicate);
+    for (let i = 0; i < this._rowCount; i++) {
+      if (predicate(this.getRow(i), i)) return i;
+    }
+    return -1;
   }
 
   /**
@@ -841,30 +871,24 @@ export class Toon {
    * DOOM-STYLE: typed array cuando sea posible, inline todo
    */
   toMatrix(fields?: string[]): number[][] {
-    const fieldsToUse = fields || Object.keys(this.dataset.schema);
-    const rowCount = this.dataset.rows.length;
+    const fieldsToUse = fields || Object.keys(this._schema);
+    const rowCount = this._rowCount;
     const colCount = fieldsToUse.length;
-    const rows = this.dataset.rows;
+    const cols = fieldsToUse.map(f => this._columns.get(f));
 
     const matrix = new Array(rowCount);
 
-    // Cache field names para acceso directo
     for (let i = 0; i < rowCount; i++) {
-      const row = rows[i];
       const matrixRow = new Array(colCount);
-      
-      // Unroll cuando sea pequeño
-      if (colCount <= 4) {
-        for (let j = 0; j < colCount; j++) {
-          const val = row[fieldsToUse[j]];
+      for (let j = 0; j < colCount; j++) {
+        const col = cols[j];
+        if (!col) {
+          matrixRow[j] = 0;
+        } else {
+          const val = col[i];
           matrixRow[j] = typeof val === 'number' ? val : (Number(val) || 0);
         }
-      } else {
-        for (let j = 0; j < colCount; j++) {
-          matrixRow[j] = Number(row[fieldsToUse[j]]) || 0;
-        }
       }
-      
       matrix[i] = matrixRow;
     }
 
@@ -1053,7 +1077,7 @@ export class Toon {
    * OPTIMIZADO: Acceso directo a columnas
    */
   dotProduct(otherRow: Record<string, unknown>, fields?: string[]): number {
-    const fieldsToUse = fields || Object.keys(this.dataset.schema);
+    const fieldsToUse = fields || Object.keys(this._schema);
     
     if (this._rowCount === 0) return 0;
 
@@ -1079,7 +1103,7 @@ export class Toon {
    * OPTIMIZADO: Acceso directo a columnas
    */
   norm(type: 'l1' | 'l2' | 'max' = 'l2', fields?: string[]): number {
-    const fieldsToUse = fields || Object.keys(this.dataset.schema);
+    const fieldsToUse = fields || Object.keys(this._schema);
     
     if (this._rowCount === 0) return 0;
 
@@ -1442,7 +1466,7 @@ export class Toon {
    * Matriz de correlación para múltiples campos
    */
   correlationMatrix(fields?: string[]): Record<string, Record<string, number>> {
-    const fieldsToUse = fields || Object.keys(this.dataset.schema);
+    const fieldsToUse = fields || Object.keys(this._schema);
     const matrix: Record<string, Record<string, number>> = {};
 
     fieldsToUse.forEach(field1 => {
@@ -1459,9 +1483,9 @@ export class Toon {
    * Aplica una función a cada elemento numérico
    */
   applyFunction(fn: (value: number) => number, fields?: string[]): Toon {
-    const fieldsToApply = fields || Object.keys(this.dataset.schema);
+    const fieldsToApply = fields || Object.keys(this._schema);
 
-    const newRows = this.dataset.rows.map(row => {
+    const newRows = this.rows.map(row => {
       const newRow = { ...row };
       fieldsToApply.forEach(field => {
         const value = Number(row[field]);
@@ -1473,7 +1497,8 @@ export class Toon {
     });
 
     return new Toon({
-      ...this.dataset,
+      name: this._name,
+      schema: this._schema,
       rows: newRows,
     });
   }
@@ -1495,7 +1520,7 @@ export class Toon {
     }
 
     const newFieldName = `${field}_binned`;
-    const newRows = this.dataset.rows.map(row => {
+    const newRows = this.rows.map(row => {
       const value = Number(row[field]);
       let binIndex = -1;
 
@@ -1516,8 +1541,8 @@ export class Toon {
     });
 
     return new Toon({
-      ...this.dataset,
-      schema: { ...this.dataset.schema, [newFieldName]: 'string' },
+      name: this._name,
+      schema: { ...this._schema, [newFieldName]: 'string' },
       rows: newRows,
     });
   }
@@ -1793,36 +1818,45 @@ export class Toon {
   rank(field: string, method: 'dense' | 'min' | 'max' = 'dense'): Toon {
     const newFieldName = `${field}_rank`;
     const values = this.pluck(field).map((v, idx) => ({ value: Number(v), index: idx }));
-    const sorted = values.sort((a, b) => b.value - a.value);
+    const sorted = [...values].sort((a, b) => b.value - a.value);
 
     const ranks: number[] = new Array(values.length);
-    let currentRank = 1;
+    let denseRank = 1;
 
-    for (let i = 0; i < sorted.length; i++) {
-      if (i > 0 && sorted[i].value === sorted[i - 1].value) {
-        ranks[sorted[i].index] = ranks[sorted[i - 1].index];
+    // Assign ranks group by group so tied values share a single rank; 'min' uses the
+    // position of the first tied element, 'max' the position of the last, 'dense'
+    // increments by one per distinct value regardless of group size.
+    let i = 0;
+    while (i < sorted.length) {
+      let j = i;
+      while (j < sorted.length && sorted[j].value === sorted[i].value) {
+        j++;
+      }
+
+      let groupRank: number;
+      if (method === 'dense') {
+        groupRank = denseRank;
+        denseRank++;
+      } else if (method === 'min') {
+        groupRank = i + 1;
       } else {
-        if (method === 'dense' && i > 0 && sorted[i].value !== sorted[i - 1].value) {
-          currentRank = ranks[sorted[i - 1].index] + 1;
-        } else if (method === 'min' || method === 'max') {
-          currentRank = i + 1;
-        }
-        ranks[sorted[i].index] = currentRank;
+        groupRank = j;
       }
 
-      if (method !== 'dense' && i === sorted.length - 1) {
-        currentRank++;
+      for (let k = i; k < j; k++) {
+        ranks[sorted[k].index] = groupRank;
       }
+      i = j;
     }
 
-    const newRows = this.dataset.rows.map((row, idx) => ({
+    const newRows = this.rows.map((row, idx) => ({
       ...row,
       [newFieldName]: ranks[idx],
     }));
 
     return new Toon({
-      ...this.dataset,
-      schema: { ...this.dataset.schema, [newFieldName]: 'number' },
+      name: this._name,
+      schema: { ...this._schema, [newFieldName]: 'number' },
       rows: newRows,
     });
   }
@@ -1834,15 +1868,29 @@ export class Toon {
     const newFieldName = `${field}_percentile`;
     const values = this.pluck(field).map(v => Number(v)).filter(v => !isNaN(v));
     const sorted = [...values].sort((a, b) => a - b);
+    const n = sorted.length;
 
-    const newRows = this.dataset.rows.map(row => {
+    // Binary search for the first index >= value instead of a linear findIndex
+    // per row, so this stays O(n log n) instead of O(n^2) on large datasets.
+    const firstIndexAtLeast = (value: number): number => {
+      let lo = 0;
+      let hi = n;
+      while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (sorted[mid] >= value) hi = mid;
+        else lo = mid + 1;
+      }
+      return lo;
+    };
+
+    const newRows = this.rows.map(row => {
       const value = Number(row[field]);
       if (isNaN(value)) {
         return { ...row, [newFieldName]: null };
       }
 
-      const position = sorted.findIndex(v => v >= value);
-      const percentile = position >= 0 ? (position / sorted.length) * 100 : 100;
+      const position = firstIndexAtLeast(value);
+      const percentile = position < n ? (position / n) * 100 : 100;
 
       return {
         ...row,
@@ -1851,8 +1899,8 @@ export class Toon {
     });
 
     return new Toon({
-      ...this.dataset,
-      schema: { ...this.dataset.schema, [newFieldName]: 'number' },
+      name: this._name,
+      schema: { ...this._schema, [newFieldName]: 'number' },
       rows: newRows,
     });
   }
