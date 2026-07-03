@@ -1073,21 +1073,21 @@ export class Toon {
   }
 
   /**
-   * Producto punto entre dos vectores (filas)
+   * Producto punto entre una fila de este dataset (por defecto la primera) y otra fila
    * OPTIMIZADO: Acceso directo a columnas
    */
-  dotProduct(otherRow: Record<string, unknown>, fields?: string[]): number {
+  dotProduct(otherRow: Record<string, unknown>, fields?: string[], rowIndex: number = 0): number {
     const fieldsToUse = fields || Object.keys(this._schema);
-    
-    if (this._rowCount === 0) return 0;
+
+    if (this._rowCount === 0 || rowIndex < 0 || rowIndex >= this._rowCount) return 0;
 
     let sum = 0;
     for (const field of fieldsToUse) {
       const col = this._columns.get(field);
       if (col) {
-        const val1 = (col instanceof Float64Array) 
-          ? col[0] 
-          : Number((col as unknown[])[0]);
+        const val1 = (col instanceof Float64Array)
+          ? col[rowIndex]
+          : Number((col as unknown[])[rowIndex]);
           
         const val2 = Number(otherRow[field]);
         if (!isNaN(val1) && !isNaN(val2)) {
@@ -1099,22 +1099,22 @@ export class Toon {
   }
 
   /**
-   * Calcula la norma (magnitud) de un vector
+   * Calcula la norma (magnitud) de una fila (por defecto la primera) tratada como vector
    * OPTIMIZADO: Acceso directo a columnas
    */
-  norm(type: 'l1' | 'l2' | 'max' = 'l2', fields?: string[]): number {
+  norm(type: 'l1' | 'l2' | 'max' = 'l2', fields?: string[], rowIndex: number = 0): number {
     const fieldsToUse = fields || Object.keys(this._schema);
-    
-    if (this._rowCount === 0) return 0;
+
+    if (this._rowCount === 0 || rowIndex < 0 || rowIndex >= this._rowCount) return 0;
 
     if (type === 'l2') {
       let sumSq = 0;
       for (const field of fieldsToUse) {
         const col = this._columns.get(field);
         if (col) {
-          const val = (col instanceof Float64Array) 
-            ? col[0] 
-            : Number((col as unknown[])[0]);
+          const val = (col instanceof Float64Array)
+            ? col[rowIndex]
+            : Number((col as unknown[])[rowIndex]);
             
           if (!isNaN(val)) {
             sumSq += val * val;
@@ -1129,9 +1129,9 @@ export class Toon {
       for (const field of fieldsToUse) {
         const col = this._columns.get(field);
         if (col) {
-          const val = (col instanceof Float64Array) 
-            ? col[0] 
-            : Number((col as unknown[])[0]);
+          const val = (col instanceof Float64Array)
+            ? col[rowIndex]
+            : Number((col as unknown[])[rowIndex]);
             
           if (!isNaN(val)) {
             sum += Math.abs(val);
@@ -1146,9 +1146,9 @@ export class Toon {
       for (const field of fieldsToUse) {
         const col = this._columns.get(field);
         if (col) {
-          const val = (col instanceof Float64Array) 
-            ? col[0] 
-            : Number((col as unknown[])[0]);
+          const val = (col instanceof Float64Array)
+            ? col[rowIndex]
+            : Number((col as unknown[])[rowIndex]);
             
           if (!isNaN(val)) {
             const abs = Math.abs(val);
