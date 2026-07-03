@@ -146,7 +146,13 @@ export class ToonParser {
    */
   private static parseValue(value: string, type: string): unknown {
     if (value === 'null' || value === '') return null;
-    if (type === 'number' || !isNaN(Number(value))) return Number(value);
+    // Values with a leading zero (e.g. zip codes "00501", IDs "007") are kept as
+    // strings even though they look numeric, since converting them to a Number
+    // would silently drop the leading zeros and corrupt the data.
+    const looksLikeLeadingZero = /^-?0\d/.test(value);
+    if (!looksLikeLeadingZero && (type === 'number' || !isNaN(Number(value)))) {
+      return Number(value);
+    }
     if (type === 'boolean') return value.toLowerCase() === 'true';
     return value;
   }
